@@ -9,7 +9,7 @@ cp .env.example .env      # isi DB_PASSWORD dan ADMIN_PASSWORD
 docker compose up -d --build
 ```
 Buka `http://localhost:8000`. Tabel dibuat otomatis saat aplikasi start.
-Deploy dengan **Coolify + GitHub**: ikuti **[PANDUAN-COOLIFY.md](PANDUAN-COOLIFY.md)**.
+Deploy dengan **Coolify + GitHub + PostgreSQL sendiri**: ikuti **[PANDUAN-COOLIFY.md](PANDUAN-COOLIFY.md)**.
 Server biasa tanpa Coolify (Docker + Caddy): lihat **[DEPLOY.md](DEPLOY.md)**.
 
 ## Halaman
@@ -26,6 +26,6 @@ Server biasa tanpa Coolify (Docker + Caddy): lihat **[DEPLOY.md](DEPLOY.md)**.
 - Waktu dicatat di server (zona `Asia/Jakarta`): ambil, panggil, mulai, selesai. Aturan dijaga di query SQL (`app/main.py`, konstanta `AKSI`).
 
 ## Struktur
-`app/main.py` (semua route + SQL) · `app/templates/` (HTML) · `docker-compose.yml` (lokal) · `docker-compose.coolify.yml` (Coolify) · `docker-compose.caddy.yml` (HTTPS non-Coolify) · `scripts/backup.sh` · `tests/test_alur.py` · `DEPLOY.md`
+`app/main.py` (semua route + SQL) · `app/templates/` (HTML) · `docker-compose.yml` (lokal) · `docker-compose.coolify.yml` (Coolify) · `docker-compose.caddy.yml` (HTTPS non-Coolify) · `scripts/backup.sh` (compose lokal) · `scripts/schema.sql` · `tests/test_alur.py` · `DEPLOY.md`
 
 Rahasia hanya di `.env` (sudah di `.gitignore`), tidak ada kredensial di kode.

@@ -1,30 +1,20 @@
-# Compose khusus Coolify. TANPA "ports:" dan TANPA Caddy: routing + HTTPS dikelola proxy Coolify.
-# Domain diisi di UI Coolify (kolom Domains service "app"), bukan di file ini.
+# Compose khusus Coolify. Skema: Nginx eksternal (aaPanel) -> port host -> kontainer app -> PostgreSQL milik sendiri.
+# Port host dipublikasikan langsung (melewati proxy Coolify), jadi JANGAN isi Domains di Coolify.
+# Semua nilai diisi lewat Environment Variables di Coolify (jangan ditulis di file ini).
 services:
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: antrian
-      POSTGRES_USER: antrian
-      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}   # dibuat otomatis oleh Coolify
-      TZ: Asia/Jakarta
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U antrian -d antrian"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   app:
     build: .
-    depends_on:
-      db:
-        condition: service_healthy
+    ports:
+      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-8097}:8000"
     environment:
-      DATABASE_URL: postgresql://antrian:${SERVICE_PASSWORD_POSTGRES}@db:5432/antrian
+      DB_HOST: ${DB_HOST:?}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-db-antre}
+      DB_USER: ${DB_USER:?}
+      DB_PASS: ${DB_PASS:?}
+      DB_SSLMODE: ${DB_SSLMODE:-prefer}
       ADMIN_USER: ${ADMIN_USER:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?}               # WAJIB diisi di tab Environment Variables
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?}
       NAMA_INSTANSI: ${NAMA_INSTANSI:-PST BPS Provinsi Kepulauan Riau}
       JUMLAH_MEJA: ${JUMLAH_MEJA:-3}
       TZ: Asia/Jakarta
@@ -33,7 +23,4 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 20s
-
-volumes:
-  pgdata:
+      start_period: 40s

@@ -1,6 +1,7 @@
 import io
 import os
 import secrets
+import time
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
@@ -11,9 +12,28 @@ from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from openpyxl import Workbook
+from psycopg.conninfo import make_conninfo
 from psycopg.rows import dict_row
 
-DSN = os.environ["DATABASE_URL"]
+
+def _dsn() -> str:
+    """Koneksi ke PostgreSQL. DATABASE_URL (jika ada) menang; jika tidak, dirakit dari DB_*.
+    Dirakit sebagai key/value (bukan URL) agar karakter khusus di password aman."""
+    if os.getenv("DATABASE_URL"):
+        return os.environ["DATABASE_URL"]
+    return make_conninfo(
+        host=os.environ["DB_HOST"],
+        port=os.getenv("DB_PORT", "5432"),
+        dbname=os.environ["DB_NAME"],
+        user=os.environ["DB_USER"],
+        password=os.getenv("DB_PASS", ""),
+        sslmode=os.getenv("DB_SSLMODE", "prefer"),
+        connect_timeout="5",
+    )
+
+
+DSN = _dsn()
+LOCK_KEY = 74200101  # kunci advisory khusus aplikasi ini
 TZ = ZoneInfo(os.getenv("TZ", "Asia/Jakarta"))
 NAMA = os.getenv("NAMA_INSTANSI", "PST BPS Provinsi Kepulauan Riau")
 MEJA = int(os.getenv("JUMLAH_MEJA", "3"))
@@ -21,7 +41,7 @@ ADMIN_USER = os.getenv("ADMIN_USER", "admin")
 ADMIN_PASS = os.environ["ADMIN_PASSWORD"]  # wajib diisi, tidak ada default
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS antrian (
+CREATE TABLE IF NOT EXISTS queue_tiket (
   id           bigserial PRIMARY KEY,
   tanggal      date        NOT NULL,
   nomor        int         NOT NULL,
@@ -40,20 +60,20 @@ CREATE TABLE IF NOT EXISTS antrian (
 # Setiap aksi = satu UPDATE atomik; aturan urutan dijaga di database, bukan di browser.
 AKSI = {
     "panggil": """
-        UPDATE antrian SET meja=%(m)s, dipanggil_at=COALESCE(dipanggil_at, now()),
+        UPDATE queue_tiket SET meja=%(m)s, dipanggil_at=COALESCE(dipanggil_at, now()),
                panggil_n=panggil_n+1, last_call_at=now()
         WHERE id=%(id)s AND tanggal=%(t)s AND mulai_at IS NULL AND selesai_at IS NULL
           AND (meja IS NULL OR meja=%(m)s)
-          AND NOT EXISTS (SELECT 1 FROM antrian x WHERE x.tanggal=%(t)s AND x.meja=%(m)s
+          AND NOT EXISTS (SELECT 1 FROM queue_tiket x WHERE x.tanggal=%(t)s AND x.meja=%(m)s
                           AND x.selesai_at IS NULL AND x.id<>%(id)s)
-          AND NOT EXISTS (SELECT 1 FROM antrian x WHERE x.tanggal=%(t)s AND x.dipanggil_at IS NULL
-                          AND x.id<>%(id)s AND x.nomor<antrian.nomor)
+          AND NOT EXISTS (SELECT 1 FROM queue_tiket x WHERE x.tanggal=%(t)s AND x.dipanggil_at IS NULL
+                          AND x.id<>%(id)s AND x.nomor<queue_tiket.nomor)
         RETURNING id""",
-    "mulai": """UPDATE antrian SET mulai_at=now() WHERE id=%(id)s AND meja=%(m)s
+    "mulai": """UPDATE queue_tiket SET mulai_at=now() WHERE id=%(id)s AND meja=%(m)s
                 AND dipanggil_at IS NOT NULL AND mulai_at IS NULL AND selesai_at IS NULL RETURNING id""",
-    "selesai": """UPDATE antrian SET selesai_at=now() WHERE id=%(id)s AND meja=%(m)s
+    "selesai": """UPDATE queue_tiket SET selesai_at=now() WHERE id=%(id)s AND meja=%(m)s
                   AND mulai_at IS NOT NULL AND selesai_at IS NULL RETURNING id""",
-    "lewati": """UPDATE antrian SET selesai_at=now(), lewat=true WHERE id=%(id)s AND meja=%(m)s
+    "lewati": """UPDATE queue_tiket SET selesai_at=now(), lewat=true WHERE id=%(id)s AND meja=%(m)s
                  AND dipanggil_at IS NOT NULL AND mulai_at IS NULL AND selesai_at IS NULL RETURNING id""",
 }
 
@@ -87,7 +107,14 @@ def dur(a, b):
 
 @asynccontextmanager
 async def lifespan(_):
-    q(SCHEMA)
+    for i in range(10):  # tunggu database siap; setelah 10x gagal, tampilkan errornya di log
+        try:
+            q(SCHEMA)
+            break
+        except psycopg.Error:
+            if i == 9:
+                raise
+            time.sleep(3)
     yield
 
 
@@ -152,17 +179,17 @@ def laporan(r: Request, tanggal: date | None = None):
 @app.post("/api/tiket")
 def tiket():
     with psycopg.connect(DSN, row_factory=dict_row) as c:
-        c.execute("SELECT pg_advisory_xact_lock(1)")  # nomor tidak bisa kembar
+        c.execute("SELECT pg_advisory_xact_lock(%s)", (LOCK_KEY,))  # nomor tidak bisa kembar
         row = c.execute(
-            "INSERT INTO antrian(tanggal, nomor) SELECT %(t)s, COALESCE(MAX(nomor),0)+1 "
-            "FROM antrian WHERE tanggal=%(t)s RETURNING nomor", {"t": today()}).fetchone()
+            "INSERT INTO queue_tiket(tanggal, nomor) SELECT %(t)s, COALESCE(MAX(nomor),0)+1 "
+            "FROM queue_tiket WHERE tanggal=%(t)s RETURNING nomor", {"t": today()}).fetchone()
     return {"nomor": row["nomor"]}
 
 
 @app.get("/api/loket/{meja}", dependencies=[Depends(admin)])
 def state(meja: int):
     cek_meja(meja)
-    asc = q("SELECT * FROM antrian WHERE tanggal=%s ORDER BY nomor", (today(),))
+    asc = q("SELECT * FROM queue_tiket WHERE tanggal=%s ORDER BY nomor", (today(),))
     aktif = next((r for r in asc if r["meja"] == meja and r["dipanggil_at"] and not r["selesai_at"]), None)
     nxt = next((r for r in asc if not r["dipanggil_at"]), None)
     last = max((r for r in asc if r["last_call_at"]), key=lambda r: r["last_call_at"], default=None)
@@ -191,17 +218,17 @@ def lakukan(meja: int, id: int, aksi: str):
 @app.get("/api/monitor")
 def api_monitor():
     d = today()
-    last = q("SELECT id, nomor, meja, panggil_n FROM antrian WHERE tanggal=%s AND last_call_at IS NOT NULL "
+    last = q("SELECT id, nomor, meja, panggil_n FROM queue_tiket WHERE tanggal=%s AND last_call_at IS NOT NULL "
              "ORDER BY last_call_at DESC LIMIT 1", (d,), one=True)
-    aktif = q("SELECT meja, nomor FROM antrian WHERE tanggal=%s AND meja IS NOT NULL "
+    aktif = q("SELECT meja, nomor FROM queue_tiket WHERE tanggal=%s AND meja IS NOT NULL "
               "AND dipanggil_at IS NOT NULL AND selesai_at IS NULL ORDER BY meja", (d,))
-    sisa = q("SELECT count(*) AS n FROM antrian WHERE tanggal=%s AND dipanggil_at IS NULL", (d,), one=True)["n"]
+    sisa = q("SELECT count(*) AS n FROM queue_tiket WHERE tanggal=%s AND dipanggil_at IS NULL", (d,), one=True)["n"]
     return {"last": last, "aktif": aktif, "sisa": sisa}
 
 
 # ---------- laporan ----------
 def laporan_data(d):
-    rows = q("SELECT * FROM antrian WHERE tanggal=%s ORDER BY nomor", (d,))
+    rows = q("SELECT * FROM queue_tiket WHERE tanggal=%s ORDER BY nomor", (d,))
     for r in rows:
         r["tunggu"] = dur(r["dibuat_at"], r["dipanggil_at"])
         r["layanan"] = dur(r["mulai_at"], r["selesai_at"])

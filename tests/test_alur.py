@@ -1,6 +1,11 @@
 import os, sys, time, pgserver
 srv = pgserver.get_server("/tmp/pgdata-test", cleanup_mode="delete")
-os.environ.update(DATABASE_URL=srv.get_uri(), ADMIN_PASSWORD="rahasia-test", JUMLAH_MEJA="2")
+from psycopg.conninfo import conninfo_to_dict
+d = conninfo_to_dict(srv.get_uri())  # uji jalur DB_* (yang dipakai di produksi), bukan DATABASE_URL
+os.environ.update(DB_HOST=d["host"], DB_PORT=str(d.get("port", "5432")), DB_NAME=d["dbname"],
+                  DB_USER=d["user"], DB_PASS=d.get("password", ""),
+                  ADMIN_PASSWORD="rahasia-test", JUMLAH_MEJA="2")
+os.environ.pop("DATABASE_URL", None)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi.testclient import TestClient
 from app.main import app
