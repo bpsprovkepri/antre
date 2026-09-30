@@ -1,261 +1,264 @@
-import io
+"""Aplikasi Antrian: route halaman & API. Logika ada di antrian.py, pengaturan.py, printer.py, suara.py."""
 import os
 import secrets
 import time
 from contextlib import asynccontextmanager
-from datetime import date, datetime
-from zoneinfo import ZoneInfo
+from datetime import date, timedelta
+from urllib.parse import quote
 
-import psycopg
-from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from openpyxl import Workbook
-from psycopg.conninfo import make_conninfo
-from psycopg.rows import dict_row
+from starlette.middleware.sessions import SessionMiddleware
 
+from . import antrian, config, db, pengaturan, printer, suara
+from .util import hari_ini, tanggal_id
 
-def _dsn() -> str:
-    """Koneksi ke PostgreSQL. DATABASE_URL (jika ada) menang; jika tidak, dirakit dari DB_*.
-    Dirakit sebagai key/value (bukan URL) agar karakter khusus di password aman."""
-    if os.getenv("DATABASE_URL"):
-        return os.environ["DATABASE_URL"]
-    return make_conninfo(
-        host=os.environ["DB_HOST"],
-        port=os.getenv("DB_PORT", "5432"),
-        dbname=os.environ["DB_NAME"],
-        user=os.environ["DB_USER"],
-        password=os.getenv("DB_PASS", ""),
-        sslmode=os.getenv("DB_SSLMODE", "prefer"),
-        connect_timeout="5",
-    )
-
-
-DSN = _dsn()
-LOCK_KEY = 74200101  # kunci advisory khusus aplikasi ini
-TZ = ZoneInfo(os.getenv("TZ", "Asia/Jakarta"))
-NAMA = os.getenv("NAMA_INSTANSI", "PST BPS Provinsi Kepulauan Riau")
-MEJA = int(os.getenv("JUMLAH_MEJA", "3"))
-ADMIN_USER = os.getenv("ADMIN_USER", "admin")
-ADMIN_PASS = os.environ["ADMIN_PASSWORD"]  # wajib diisi, tidak ada default
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS queue_tiket (
-  id           bigserial PRIMARY KEY,
-  tanggal      date        NOT NULL,
-  nomor        int         NOT NULL,
-  meja         int,
-  dibuat_at    timestamptz NOT NULL DEFAULT now(),
-  dipanggil_at timestamptz,
-  mulai_at     timestamptz,
-  selesai_at   timestamptz,
-  lewat        boolean     NOT NULL DEFAULT false,
-  panggil_n    int         NOT NULL DEFAULT 0,
-  last_call_at timestamptz,
-  UNIQUE (tanggal, nomor)
-)
-"""
-
-# Setiap aksi = satu UPDATE atomik; aturan urutan dijaga di database, bukan di browser.
-AKSI = {
-    "panggil": """
-        UPDATE queue_tiket SET meja=%(m)s, dipanggil_at=COALESCE(dipanggil_at, now()),
-               panggil_n=panggil_n+1, last_call_at=now()
-        WHERE id=%(id)s AND tanggal=%(t)s AND mulai_at IS NULL AND selesai_at IS NULL
-          AND (meja IS NULL OR meja=%(m)s)
-          AND NOT EXISTS (SELECT 1 FROM queue_tiket x WHERE x.tanggal=%(t)s AND x.meja=%(m)s
-                          AND x.selesai_at IS NULL AND x.id<>%(id)s)
-          AND NOT EXISTS (SELECT 1 FROM queue_tiket x WHERE x.tanggal=%(t)s AND x.dipanggil_at IS NULL
-                          AND x.id<>%(id)s AND x.nomor<queue_tiket.nomor)
-        RETURNING id""",
-    "mulai": """UPDATE queue_tiket SET mulai_at=now() WHERE id=%(id)s AND meja=%(m)s
-                AND dipanggil_at IS NOT NULL AND mulai_at IS NULL AND selesai_at IS NULL RETURNING id""",
-    "selesai": """UPDATE queue_tiket SET selesai_at=now() WHERE id=%(id)s AND meja=%(m)s
-                  AND mulai_at IS NOT NULL AND selesai_at IS NULL RETURNING id""",
-    "lewati": """UPDATE queue_tiket SET selesai_at=now(), lewat=true WHERE id=%(id)s AND meja=%(m)s
-                 AND dipanggil_at IS NOT NULL AND mulai_at IS NULL AND selesai_at IS NULL RETURNING id""",
-}
-
-
-def q(sql, params=None, one=False):
-    with psycopg.connect(DSN, row_factory=dict_row) as c:
-        cur = c.execute(sql, params)
-        rows = cur.fetchall() if cur.description else []
-    return (rows[0] if rows else None) if one else rows
-
-
-def today():
-    return datetime.now(TZ).date()
-
-
-def hms(d):
-    return d.astimezone(TZ).strftime("%H:%M:%S") if d else "-"
-
-
-def mmss(s):
-    return "-" if s is None else f"{int(s) // 60:02d}:{int(s) % 60:02d}"
-
-
-def p3(n):
-    return f"{n:03d}" if n else "-"
-
-
-def dur(a, b):
-    return int((b - a).total_seconds()) if a and b else None
+BASE = os.path.dirname(os.path.abspath(__file__))
 
 
 @asynccontextmanager
 async def lifespan(_):
-    for i in range(10):  # tunggu database siap; setelah 10x gagal, tampilkan errornya di log
-        try:
-            q(SCHEMA)
-            break
-        except psycopg.Error:
-            if i == 9:
-                raise
-            time.sleep(3)
+    db.init()
+    pengaturan.seed()
     yield
+    db.tutup()
 
 
-app = FastAPI(title="Antrian", lifespan=lifespan)
-tpl = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
-tpl.env.globals.update(hms=hms, mmss=mmss, p3=p3)
-basic = HTTPBasic()
+app = FastAPI(title="Antrian", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+app.add_middleware(SessionMiddleware, secret_key=config.SECRET_KEY, max_age=config.SESI_DETIK,
+                   same_site="lax", https_only=config.COOKIE_SECURE, session_cookie="antrian_sesi")
+app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="static")
+tpl = Jinja2Templates(directory=os.path.join(BASE, "templates"))
 
 
-def admin(c: HTTPBasicCredentials = Depends(basic)):
-    ok = secrets.compare_digest(c.username.encode(), ADMIN_USER.encode()) & \
-        secrets.compare_digest(c.password.encode(), ADMIN_PASS.encode())
+@app.middleware("http")
+async def header_umum(request: Request, call_next):
+    r = await call_next(request)
+    r.headers.setdefault("X-Content-Type-Options", "nosniff")
+    r.headers.setdefault("Referrer-Policy", "same-origin")
+    r.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    if request.url.path.startswith("/api/"):
+        r.headers["Cache-Control"] = "no-store"
+    return r
+
+
+# ---------- auth (sesi + halaman login) ----------
+class PerluLogin(Exception):
+    def __init__(self, tujuan: str):
+        self.tujuan = tujuan
+
+
+@app.exception_handler(PerluLogin)
+async def _perlu_login(_, e: PerluLogin):
+    return RedirectResponse(f"/login?next={quote(e.tujuan)}", status_code=303)
+
+
+def is_admin(request: Request) -> bool:
+    return bool(request.session.get("admin"))
+
+
+def admin_halaman(request: Request):
+    if not is_admin(request):
+        tujuan = request.url.path + (f"?{request.url.query}" if request.url.query else "")
+        raise PerluLogin(tujuan)
+
+
+def admin_api(request: Request):
+    if not is_admin(request):
+        raise HTTPException(401, "Sesi login berakhir, silakan login kembali")
+
+
+def _aman(tujuan: str) -> str:
+    return tujuan if tujuan.startswith("/") and not tujuan.startswith("//") and "\\" not in tujuan else "/"
+
+
+_gagal: dict = {}  # ip -> (jumlah gagal, terkunci sampai)
+
+
+def render(request: Request, nama: str, status_code: int = 200, **extra):
+    p = pengaturan.get()
+    ctx = {"p": p, "warna": pengaturan.tema(p), "footer": pengaturan.footer_teks(p),
+           "logo": f"/logo?v={p['_versi']}", "admin": is_admin(request), **extra}
+    return tpl.TemplateResponse(request, nama, ctx, status_code=status_code)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_form(request: Request, next: str = "/pengaturan"):
+    if is_admin(request):
+        return RedirectResponse(_aman(next), 303)
+    return render(request, "login.html", next=_aman(next), error=None)
+
+
+@app.post("/login")
+def login_kirim(request: Request, username: str = Form(""), password: str = Form(""), next: str = Form("/")):
+    ip = request.client.host if request.client else "?"
+    n, sampai = _gagal.get(ip, (0, 0))
+    if sampai > time.time():
+        return render(request, "login.html", 429, next=_aman(next), error="Terlalu banyak percobaan, coba lagi 1 menit lagi.")
+    ok = secrets.compare_digest(username.encode(), config.ADMIN_USER.encode()) & \
+        secrets.compare_digest(password.encode(), config.ADMIN_PASS.encode())
     if not ok:
-        raise HTTPException(401, headers={"WWW-Authenticate": "Basic"})
+        n += 1
+        _gagal[ip] = (n, time.time() + 60 if n >= 5 else 0)
+        return render(request, "login.html", 401, next=_aman(next), error="Username atau password salah.")
+    _gagal.pop(ip, None)
+    request.session["admin"] = True
+    return RedirectResponse(_aman(next), 303)
 
 
-def cek_meja(m):
-    if not 1 <= m <= MEJA:
-        raise HTTPException(404, "Meja tidak ditemukan")
-
-
-def page(r, name, **ctx):
-    return tpl.TemplateResponse(r, name, {"nama": NAMA, **ctx})
+@app.post("/logout")
+def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/", 303)
 
 
 # ---------- halaman ----------
 @app.get("/healthz")
 def healthz():
-    q("SELECT 1")
+    db.q("SELECT 1")
     return {"status": "ok"}
 
 
-@app.get("/")
-def menu(r: Request):
-    return page(r, "menu.html", meja=MEJA)
+@app.get("/", response_class=HTMLResponse)
+def beranda(request: Request):
+    return render(request, "beranda.html")
 
 
-@app.get("/kiosk")
-def kiosk(r: Request):
-    return page(r, "kiosk.html")
+@app.get("/kiosk", response_class=HTMLResponse)
+def kiosk(request: Request):
+    return render(request, "kiosk.html")
 
 
-@app.get("/monitor")
-def monitor(r: Request):
-    return page(r, "monitor.html")
+@app.get("/monitor", response_class=HTMLResponse)
+def monitor(request: Request):
+    p = pengaturan.get()
+    return render(request, "monitor.html", youtube=pengaturan.youtube_embed(p["youtube_id"]))
 
 
-@app.get("/loket/{meja}", dependencies=[Depends(admin)])
-def loket(r: Request, meja: int):
-    cek_meja(meja)
-    return page(r, "loket.html", meja=meja)
+def _cek_meja(no: int) -> str:
+    nama = pengaturan.nama_meja(pengaturan.get(), no)
+    if nama is None:
+        raise HTTPException(404, "Meja tidak ditemukan")
+    return nama
 
 
-@app.get("/laporan", dependencies=[Depends(admin)])
-def laporan(r: Request, tanggal: date | None = None):
-    d = tanggal or today()
-    rows, ring = laporan_data(d)
-    return page(r, "laporan.html", tanggal=d.isoformat(), rows=rows, ring=ring)
+@app.get("/loket/{meja}", response_class=HTMLResponse, dependencies=[Depends(admin_halaman)])
+def loket(request: Request, meja: int):
+    return render(request, "loket.html", meja=meja, meja_nama=_cek_meja(meja))
 
 
-# ---------- API ----------
+@app.get("/laporan", response_class=HTMLResponse, dependencies=[Depends(admin_halaman)])
+def laporan(request: Request, tanggal: date | None = None):
+    d = tanggal or hari_ini()
+    return render(request, "laporan.html", tanggal=d.isoformat(), tanggal_teks=tanggal_id(d),
+                  kemarin=(d - timedelta(days=1)).isoformat(), besok=(d + timedelta(days=1)).isoformat(),
+                  hari_ini_iso=hari_ini().isoformat(), **antrian.laporan_data(d, pengaturan.get()))
+
+
+@app.get("/laporan.xlsx", dependencies=[Depends(admin_halaman)])
+def laporan_xlsx(tanggal: date | None = None):
+    d = tanggal or hari_ini()
+    return Response(antrian.laporan_xlsx(d, pengaturan.get()),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="laporan-antrian-{d}.xlsx"'})
+
+
+@app.get("/pengaturan", response_class=HTMLResponse, dependencies=[Depends(admin_halaman)])
+def halaman_pengaturan(request: Request):
+    return render(request, "pengaturan.html", suara_server=suara.tersedia())
+
+
+@app.get("/logo")
+def logo():
+    r = pengaturan.ambil_logo()
+    if r:
+        return Response(bytes(r["data"]), media_type=r["tipe"], headers={"Cache-Control": "public, max-age=300"})
+    return FileResponse(os.path.join(BASE, "static", "img", "logo-default.svg"), media_type="image/svg+xml")
+
+
+# ---------- API publik ----------
 @app.post("/api/tiket")
-def tiket():
-    with psycopg.connect(DSN, row_factory=dict_row) as c:
-        c.execute("SELECT pg_advisory_xact_lock(%s)", (LOCK_KEY,))  # nomor tidak bisa kembar
-        row = c.execute(
-            "INSERT INTO queue_tiket(tanggal, nomor) SELECT %(t)s, COALESCE(MAX(nomor),0)+1 "
-            "FROM queue_tiket WHERE tanggal=%(t)s RETURNING nomor", {"t": today()}).fetchone()
-    return {"nomor": row["nomor"]}
-
-
-@app.get("/api/loket/{meja}", dependencies=[Depends(admin)])
-def state(meja: int):
-    cek_meja(meja)
-    asc = q("SELECT * FROM queue_tiket WHERE tanggal=%s ORDER BY nomor", (today(),))
-    aktif = next((r for r in asc if r["meja"] == meja and r["dipanggil_at"] and not r["selesai_at"]), None)
-    nxt = next((r for r in asc if not r["dipanggil_at"]), None)
-    last = max((r for r in asc if r["last_call_at"]), key=lambda r: r["last_call_at"], default=None)
-    rows = [{
-        "id": r["id"], "nomor": p3(r["nomor"]), "lewat": r["lewat"],
-        "panggil": hms(r["dipanggil_at"]), "mulai": hms(r["mulai_at"]), "selesai": hms(r["selesai_at"]),
-        "bisa_panggil": bool((r is nxt and not aktif) or (r is aktif and not r["mulai_at"])),
-        "bisa_mulai": bool(r is aktif and not r["mulai_at"]),
-        "bisa_selesai": bool(r is aktif and r["mulai_at"]),
-    } for r in reversed(asc)]
-    return {"jumlah": len(asc), "sekarang": p3(last["nomor"]) if last else "-",
-            "selanjutnya": p3(nxt["nomor"]) if nxt else "-",
-            "sisa": sum(1 for r in asc if not r["dipanggil_at"]), "rows": rows}
-
-
-@app.post("/api/loket/{meja}/{id}/{aksi}", dependencies=[Depends(admin)])
-def lakukan(meja: int, id: int, aksi: str):
-    cek_meja(meja)
-    if aksi not in AKSI:
-        raise HTTPException(404)
-    if not q(AKSI[aksi], {"id": id, "m": meja, "t": today()}, one=True):
-        raise HTTPException(409, "Aksi tidak diizinkan untuk status antrian saat ini")
-    return {"ok": True}
+def api_tiket(tugas: BackgroundTasks):
+    t = antrian.tiket_baru()
+    p = pengaturan.get()
+    if p["printer_aktif"]:
+        tugas.add_task(printer.cetak, p, t["nomor"])
+    return {**t, "cetak": p["printer_aktif"]}
 
 
 @app.get("/api/monitor")
 def api_monitor():
-    d = today()
-    last = q("SELECT id, nomor, meja, panggil_n FROM queue_tiket WHERE tanggal=%s AND last_call_at IS NOT NULL "
-             "ORDER BY last_call_at DESC LIMIT 1", (d,), one=True)
-    aktif = q("SELECT meja, nomor FROM queue_tiket WHERE tanggal=%s AND meja IS NOT NULL "
-              "AND dipanggil_at IS NOT NULL AND selesai_at IS NULL ORDER BY meja", (d,))
-    sisa = q("SELECT count(*) AS n FROM queue_tiket WHERE tanggal=%s AND dipanggil_at IS NULL", (d,), one=True)["n"]
-    return {"last": last, "aktif": aktif, "sisa": sisa}
+    return antrian.monitor(pengaturan.get())
 
 
-# ---------- laporan ----------
-def laporan_data(d):
-    rows = q("SELECT * FROM queue_tiket WHERE tanggal=%s ORDER BY nomor", (d,))
-    for r in rows:
-        r["tunggu"] = dur(r["dibuat_at"], r["dipanggil_at"])
-        r["layanan"] = dur(r["mulai_at"], r["selesai_at"])
-    lay = [r["layanan"] for r in rows if r["layanan"] is not None]
-    tgg = [r["tunggu"] for r in rows if r["tunggu"] is not None]
-    ring = {"total": len(rows), "selesai": len(lay), "lewat": sum(r["lewat"] for r in rows),
-            "rata_layanan": mmss(sum(lay) / len(lay)) if lay else "-",
-            "maks_layanan": mmss(max(lay)) if lay else "-",
-            "rata_tunggu": mmss(sum(tgg) / len(tgg)) if tgg else "-"}
-    return rows, ring
+@app.get("/api/suara")
+def api_suara(nomor: int, meja: int):
+    if not (1 <= nomor <= 9999 and 1 <= meja <= 99):
+        raise HTTPException(400, "Parameter tidak valid")
+    if not suara.tersedia():
+        raise HTTPException(503, "Suara server tidak tersedia")
+    from .util import teks_panggil
+    nama = pengaturan.nama_meja(pengaturan.get(), meja) or f"Meja {meja}"
+    try:
+        wav = suara.sintesis(teks_panggil(nomor, nama))
+    except Exception:
+        raise HTTPException(503, "Gagal membuat suara")
+    return Response(wav, media_type="audio/wav", headers={"Cache-Control": "public, max-age=86400"})
 
 
-@app.get("/laporan.xlsx", dependencies=[Depends(admin)])
-def laporan_xlsx(tanggal: date | None = None):
-    d = tanggal or today()
-    rows, _ = laporan_data(d)
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Laporan"
-    ws.append(["Nomor", "Meja", "Ambil", "Panggil", "Mulai", "Selesai", "Waktu Tunggu", "Lama Layanan", "Keterangan"])
-    for r in rows:
-        ws.append([p3(r["nomor"]), r["meja"] or "-", hms(r["dibuat_at"]), hms(r["dipanggil_at"]),
-                   hms(r["mulai_at"]), hms(r["selesai_at"]), mmss(r["tunggu"]), mmss(r["layanan"]),
-                   "Tidak hadir" if r["lewat"] else ""])
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return StreamingResponse(
-        buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="laporan-antrian-{d}.xlsx"'})
+# ---------- API petugas ----------
+@app.get("/api/loket/{meja}", dependencies=[Depends(admin_api)])
+def api_loket(meja: int):
+    _cek_meja(meja)
+    p = pengaturan.get()
+    return {**antrian.state(meja), "suara": {"aktif": p["suara_loket"], "engine": p["suara_engine"]}}
+
+
+@app.post("/api/loket/{meja}/{id_}/{aksi}", dependencies=[Depends(admin_api)])
+def api_aksi(meja: int, id_: int, aksi: str):
+    _cek_meja(meja)
+    if aksi not in antrian.AKSI:
+        raise HTTPException(404, "Aksi tidak dikenal")
+    r = antrian.lakukan(meja, id_, aksi, pengaturan.get())
+    if not r:
+        raise HTTPException(409, "Aksi tidak diizinkan untuk status antrian saat ini")
+    return {"ok": True, "nomor": r["nomor"], "nomor_txt": r["nomor_txt"], "meja": r["meja"], "teks": r["teks"], "n": r["panggil_n"]}
+
+
+@app.post("/api/pengaturan", dependencies=[Depends(admin_api)])
+async def api_simpan_pengaturan(request: Request):
+    form = await request.form()
+    data, err = pengaturan.validasi(form)
+    berkas = form.get("logo")
+    isi = b""
+    if berkas is not None and hasattr(berkas, "read"):
+        isi = await berkas.read()
+        if isi:
+            e = pengaturan.simpan_logo(isi) if not err else None
+            if e:
+                err.append(e)
+    if err:
+        return JSONResponse({"ok": False, "errors": err}, status_code=422)
+    pengaturan.simpan(data)
+    return {"ok": True, "versi": pengaturan.get(paksa=True)["_versi"]}
+
+
+@app.post("/api/pengaturan/logo/hapus", dependencies=[Depends(admin_api)])
+def api_hapus_logo():
+    pengaturan.hapus_logo()
+    return {"ok": True}
+
+
+@app.post("/api/pengaturan/tes-cetak", dependencies=[Depends(admin_api)])
+async def api_tes_cetak(request: Request):
+    form = await request.form()
+    data, err = pengaturan.validasi(form)  # memakai isian form saat ini (belum perlu disimpan)
+    perr = [e for e in err if "rinter" in e and "wajib" not in e]
+    if perr:
+        return JSONResponse({"ok": False, "pesan": "; ".join(perr)}, status_code=422)
+    p = {**pengaturan.get(), **{k: data[k] for k in ("printer_host", "printer_footer")},
+         "printer_port": int(data["printer_port"]), "printer_lebar": int(data["printer_lebar"])}
+    e = printer.cetak(p, 1) if p["printer_host"] else "Isi alamat printer terlebih dahulu"
+    return JSONResponse({"ok": e is None, "pesan": e or "Tes cetak terkirim ke printer"}, status_code=200 if e is None else 502)

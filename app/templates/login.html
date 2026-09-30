@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% from "_komponen.html" import header with context %}
+{% block title %}Login · {{ p.nama_instansi }}{% endblock %}
+{% block content %}
+<div class="login-wrap"><div class="kartu kartu-kaca login-kartu muncul">
+  <img src="{{ logo }}" alt="Logo">
+  <h1 class="h4 fw-bold mb-1">Login Petugas</h1>
+  <p class="text-secondary mb-4">Masuk untuk membuka halaman petugas.</p>
+  {% if error %}<div class="alert alert-danger py-2 small" role="alert"><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ error }}</div>{% endif %}
+  <form method="post" action="/login" class="text-start">
+    <input type="hidden" name="next" value="{{ next }}">
+    <div class="mb-3"><label class="form-label" for="u">Username</label>
+      <input class="form-control" id="u" name="username" autocomplete="username" required autofocus></div>
+    <div class="mb-4"><label class="form-label" for="pw">Password</label>
+      <input class="form-control" id="pw" name="password" type="password" autocomplete="current-password" required></div>
+    <button class="btn btn-brand w-100 py-2"><i class="bi bi-box-arrow-in-right me-1"></i> Masuk</button>
+  </form>
+  <a href="/" class="btn btn-lembut w-100 mt-3"><i class="bi bi-house-fill me-1"></i> Kembali ke Beranda</a>
+</div></div>
+{% endblock %}
+{% block footer %}{% endblock %}

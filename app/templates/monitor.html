@@ -1,27 +1,106 @@
-{% extends "base.html" %}{% block body %}
-<div id="ov" class="card" style="text-align:center;cursor:pointer"><b>Klik di sini untuk mengaktifkan suara panggilan</b></div>
-<div class="card" style="text-align:center"><p class="mut">NOMOR ANTRIAN</p>
-<p id="no" class="big" style="font-size:9rem">-</p><h2 id="mj">-</h2></div>
-<div class="card"><div id="aktif" class="grid"></div></div>
-<p class="mut" style="text-align:center">Sisa antrian: <b id="sisa">0</b></p>{% endblock %}
-{% block script %}<script>
-const $ = id => document.getElementById(id), pad = n => String(n).padStart(3, '0');
-let ready = false, key = '';
-function bicara(n, m) {
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(`Nomor antrian ${n}, silakan menuju meja ${m}`);
-  u.lang = 'id-ID'; u.rate = 0.9; speechSynthesis.speak(u);
-}
-$('ov').onclick = () => { $('ov').hidden = true; speechSynthesis.speak(new SpeechSynthesisUtterance('')); };
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Monitor Antrian · {{ p.nama_instansi }}</title>
+<link rel="icon" href="{{ logo }}">
+<link rel="stylesheet" href="/static/vendor/bootstrap-icons/bootstrap-icons.min.css">
+<link rel="stylesheet" href="/static/vendor/inter/inter.css">
+<link rel="stylesheet" href="/static/css/monitor.css">
+<style>:root{--brand:{{ warna.brand }};--bg:{{ warna.bg }};--teks:{{ warna.teks }};--sek:{{ warna.sekunder }};--aksen:{{ warna.aksen }}}</style>
+</head>
+<body>
+<div class="tv">
+  <header class="atas">
+    <h1><a class="home" href="/" title="Kembali ke Beranda"><i class="bi bi-house-fill"></i></a>{{ p.judul_monitor }}</h1>
+    <div class="waktu"><span id="tgl"></span><span class="jam" id="jam"></span><span class="dot" id="dot" title="Terhubung"></span></div>
+  </header>
+
+  <section class="info">
+    <img src="{{ logo }}" alt="Logo">
+    <div class="tengah">
+      <div class="nm">{{ p.nama_instansi }}</div>
+      {% if p.alamat %}<div class="kecil">{{ p.alamat }}</div>{% endif %}
+      {% if p.telpon or p.email %}<div class="kecil">{% if p.telpon %}Tlp. {{ p.telpon }}{% endif %}{% if p.telpon and p.email %}, {% endif %}{% if p.email %}Email. {{ p.email }}{% endif %}</div>{% endif %}
+    </div>
+  </section>
+
+  <section class="utama">
+    <div class="video">
+      {% if youtube %}<iframe src="{{ youtube }}" title="Video" allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+      {% else %}<div class="kosong"><img src="{{ logo }}" alt=""><div>Video belum diatur (Setting Antrian → YouTube)</div></div>{% endif %}
+    </div>
+    <div class="kanan">
+      <div class="k sekarang" id="kSekarang">
+        <div class="jdl">Nomor Antrian Sekarang</div>
+        <div class="isi" id="nSekarang">-</div>
+        <div class="ket" id="mejaSekarang">&nbsp;</div>
+      </div>
+      <div class="dua">
+        <div class="k selanjutnya"><div class="jdl">Antrian Selanjutnya</div><div class="isi" id="nNext">-</div></div>
+        <div class="k sisa"><div class="jdl">Sisa Antrian</div><div class="isi" id="nSisa">0</div></div>
+      </div>
+      <div class="strip" id="strip"></div>
+    </div>
+  </section>
+
+  <footer class="bawah">
+    <div class="marquee"><span id="teksJalan">{{ p.running_text }}</span></div>
+    <div class="hak">{{ footer }}</div>
+  </footer>
+</div>
+
+<div class="overlay" id="ov">
+  <div class="kotak">
+    <i class="bi bi-volume-up-fill besar"></i>
+    <h2>Aktifkan Suara Panggilan</h2>
+    <p>Browser memerlukan satu kali klik agar suara panggilan antrian dapat diputar.</p>
+    <button class="tb" id="bSuara"><i class="bi bi-volume-up me-2"></i>Aktifkan Suara</button>
+    <button class="tb abu" id="bPenuh"><i class="bi bi-fullscreen me-2"></i>Suara + Layar Penuh</button>
+  </div>
+</div>
+
+<script src="/static/js/suara.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+let kunci = null, versi = null, siap = false, cfg = {aktif: true, engine: 'auto'};
+
+/* tanggal & jam (WIB) */
+const fTgl = new Intl.DateTimeFormat('id-ID', {timeZone: 'Asia/Jakarta', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'});
+const fJam = new Intl.DateTimeFormat('id-ID', {timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'});
+const tik = () => { const n = new Date(); $('tgl').textContent = fTgl.format(n); $('jam').textContent = fJam.format(n).replace(/\./g, ':'); };
+tik(); setInterval(tik, 1000);
+
+/* aktivasi suara */
+if (Suara.otomatis()) { siap = true; $('ov').remove(); }
+function aktif(penuh) { Suara.buka(); siap = true; $('ov').remove(); if (penuh && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); }
+if ($('bSuara')) { $('bSuara').onclick = () => aktif(false); $('bPenuh').onclick = () => aktif(true); }
+
+function sorot(el) { el.classList.remove('baru'); void el.offsetWidth; el.classList.add('baru'); }
+
 async function poll() {
-  const s = await (await fetch('/api/monitor')).json();
-  $('sisa').textContent = s.sisa;
-  $('aktif').innerHTML = s.aktif.map(a =>
-    `<div style="text-align:center"><div class="mut">Meja ${a.meja}</div><b class="big">${pad(a.nomor)}</b></div>`).join('');
-  const l = s.last, k = l ? l.id + ':' + l.panggil_n : '';
-  if (l) { $('no').textContent = pad(l.nomor); $('mj').textContent = 'MEJA ' + l.meja; }
-  if (ready && k && k !== key) bicara(l.nomor, l.meja);
-  key = k; ready = true;
+  try {
+    const d = await (await fetch('/api/monitor', {cache: 'no-store'})).json();
+    $('dot').classList.remove('off');
+    if (versi && d.versi !== versi) return location.reload();   /* pengaturan diubah -> muat ulang */
+    versi = d.versi; cfg = d.suara;
+    $('nNext').textContent = d.selanjutnya; $('nSisa').textContent = d.sisa;
+    $('strip').innerHTML = d.aktif.map(a => `<span class="c">${esc(a.meja)}<b>${a.nomor}</b></span>`).join('');
+    if (d.last) {
+      $('nSekarang').textContent = d.last.nomor_txt; $('mejaSekarang').textContent = d.last.meja_nama.toUpperCase();
+      if (kunci !== null && d.last.kunci !== kunci) {            /* panggilan baru (bukan saat halaman baru dibuka) */
+        sorot($('kSekarang'));
+        if (cfg.aktif && siap) Suara.panggil({teks: d.last.teks, nomor: d.last.nomor, meja: d.last.meja}, cfg.engine);
+      }
+      kunci = d.last.kunci;
+    } else { kunci = ''; }
+  } catch (e) { $('dot').classList.add('off'); }
 }
-poll(); setInterval(poll, 2000);
-</script>{% endblock %}
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+poll(); setInterval(poll, 1500);
+/* kecepatan teks berjalan mengikuti panjang teks */
+const tj = $('teksJalan'); tj.style.animationDuration = Math.max(18, tj.textContent.length * 0.32) + 's';
+</script>
+</body>
+</html>

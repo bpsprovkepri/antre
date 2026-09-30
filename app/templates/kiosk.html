@@ -1,18 +1,40 @@
-{% extends "base.html" %}{% block body %}
-<div class="card" style="text-align:center;padding:40px">
-<h1>{{ nama }}</h1><p class="mut">Nomor antrian Anda</p>
-<p id="no" class="big" style="font-size:6rem">—</p><p id="tgl" class="mut"></p>
-<button id="ambil" style="font-size:1.6rem;padding:18px 40px">Ambil Nomor</button>
-<button id="cetak" class="sec" hidden onclick="print()">Cetak</button>
-</div>{% endblock %}
-{% block script %}<script>
-const $ = id => document.getElementById(id);
+{% extends "base.html" %}
+{% from "_komponen.html" import header with context %}
+{% block title %}Nomor Antrian · {{ p.nama_instansi }}{% endblock %}
+{% block content %}
+<div style="max-width:560px;margin:0 auto">
+  {{ header("bi-people-fill", "Nomor Antrian", "Nomor Antrian") }}
+  <section class="kartu kartu-kaca muncul text-center">
+    <img src="{{ logo }}" alt="" style="height:64px;margin-bottom:6px">
+    <div class="fw-semibold mb-3">{{ p.nama_instansi }}</div>
+    <div class="kios-box mb-2" id="box">
+      <span class="ph" id="ph">ANTRIAN</span>
+      <span class="angka d-none" id="angka"></span>
+      <div class="bar-waktu d-none" id="bar"></div>
+    </div>
+    <div class="kios-info" id="info">Tekan tombol di bawah untuk mengambil nomor antrian</div>
+    <button class="btn btn-brand btn-ambil mt-3" id="ambil"><i class="bi bi-person-plus me-2"></i>Ambil Nomor</button>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}<script>
+/* Cetak: tombol/aksi cetak sengaja tidak ditampilkan. Bila printer diaktifkan di Setting, server yang mencetak otomatis. */
+const $ = id => document.getElementById(id); let timer = null;
 $('ambil').onclick = async () => {
-  $('ambil').disabled = true;
-  const j = await (await fetch('/api/tiket', {method: 'POST'})).json();
-  $('no').textContent = String(j.nomor).padStart(3, '0');
-  $('tgl').textContent = new Date().toLocaleString('id-ID');
-  $('cetak').hidden = false;
-  setTimeout(() => $('ambil').disabled = false, 1500);
+  const tb = $('ambil'); tb.disabled = true;
+  try {
+    const t = await api('/api/tiket', {method: 'POST'});
+    $('ph').classList.add('d-none'); const a = $('angka'); a.classList.remove('d-none'); a.textContent = t.nomor_txt;
+    a.style.animation = 'none'; void a.offsetWidth; a.style.animation = '';
+    $('info').innerHTML = t.depan > 0 ? `Ada <b>${t.depan}</b> antrian di depan Anda. Mohon menunggu dipanggil.` : 'Anda antrian berikutnya. Mohon menunggu dipanggil.';
+    if (t.cetak) $('info').innerHTML += '<br><small><i class="bi bi-printer"></i> Nomor sedang dicetak</small>';
+    const bar = $('bar'); bar.classList.remove('d-none'); bar.style.transition = 'none'; bar.style.transform = 'scaleX(1)'; void bar.offsetWidth;
+    bar.style.transition = 'transform 20s linear'; bar.style.transform = 'scaleX(0)';
+    clearTimeout(timer); timer = setTimeout(() => {
+      $('angka').classList.add('d-none'); $('ph').classList.remove('d-none'); bar.classList.add('d-none');
+      $('info').textContent = 'Tekan tombol di bawah untuk mengambil nomor antrian';
+    }, 20000);
+  } catch (e) { toast('Gagal mengambil nomor: ' + e.message, 'gagal'); }
+  setTimeout(() => tb.disabled = false, 1500);
 };
 </script>{% endblock %}

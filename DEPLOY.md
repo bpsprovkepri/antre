@@ -40,7 +40,7 @@ server {
 docker compose ps                 # app & db healthy
 curl -s https://antre-dev.gurind.am/healthz    # {"status":"ok"}
 ```
-Buka `https://antre-dev.gurind.am` → menu. Halaman `/loket/1` dan `/laporan` meminta login (`ADMIN_USER` / `ADMIN_PASSWORD`).
+Buka `https://antre-dev.gurind.am` → menu. Halaman `/loket/{n}`, `/laporan`, dan `/pengaturan` meminta login lewat halaman login (`ADMIN_USER` / `ADMIN_PASSWORD`).
 
 ## Operasional
 | Tugas | Perintah |
@@ -49,12 +49,12 @@ Buka `https://antre-dev.gurind.am` → menu. Halaman `/loket/1` dan `/laporan` m
 | Update kode | ganti file, lalu `docker compose up -d --build` |
 | Cadangan | `./scripts/backup.sh` (pasang di cron) |
 | Pulihkan | `gunzip -c backups/FILE.sql.gz \| docker compose exec -T db psql -U antrian antrian` |
-| Ganti jumlah meja | ubah `JUMLAH_MEJA` di `.env`, lalu `docker compose up -d` |
+| Ganti daftar meja | menu Setting → Daftar Meja |
 
 ## Uji otomatis (opsional, di laptop)
 ```bash
 pip install -r requirements-dev.txt
-DATABASE_URL=x ADMIN_PASSWORD=x python tests/test_alur.py
+pytest -q
 ```
 (uji memakai PostgreSQL tertanam sendiri; nilai `DATABASE_URL` diabaikan)
 

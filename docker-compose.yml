@@ -24,6 +24,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?isi ADMIN_PASSWORD di .env}
       NAMA_INSTANSI: ${NAMA_INSTANSI:-PST BPS Provinsi Kepulauan Riau}
       JUMLAH_MEJA: ${JUMLAH_MEJA:-3}
+      COOKIE_SECURE: ${COOKIE_SECURE:-0}
       TZ: Asia/Jakarta
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]

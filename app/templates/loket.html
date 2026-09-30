@@ -1,36 +1,93 @@
-{% extends "base.html" %}{% block body %}
-<div class="card"><h1>Panggilan Antrian Meja {{ meja }}</h1><a href="/">← Menu</a></div>
-<div class="grid">
-<div class="card"><p class="big" id="jumlah">-</p>Jumlah Antrian</div>
-<div class="card"><p class="big" id="sekarang">-</p>Antrian Sekarang</div>
-<div class="card"><p class="big" id="nxt">-</p>Antrian Selanjutnya</div>
-<div class="card"><p class="big" id="sisa">-</p>Sisa Antrian</div>
+{% extends "base.html" %}
+{% from "_komponen.html" import header with context %}
+{% block title %}{{ meja_nama }} · Panggilan Antrian{% endblock %}
+{% block content %}
+{{ header("bi-mic-fill", "Panggilan Antrian " ~ meja_nama, "Antrian") }}
+
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-3 muncul"><div class="kartu stat"><div class="ikon ikon-kuning"><i class="bi bi-people"></i></div><div><div class="v v-kuning" id="s-jumlah">0</div><div class="l">Jumlah Antrian</div></div></div></div>
+  <div class="col-6 col-lg-3 muncul"><div class="kartu stat"><div class="ikon ikon-hijau"><i class="bi bi-person-check"></i></div><div><div class="v v-hijau" id="s-sekarang">-</div><div class="l">Antrian Sekarang</div></div></div></div>
+  <div class="col-6 col-lg-3 muncul"><div class="kartu stat"><div class="ikon ikon-biru"><i class="bi bi-person-plus"></i></div><div><div class="v v-biru" id="s-next">-</div><div class="l">Antrian Selanjutnya</div></div></div></div>
+  <div class="col-6 col-lg-3 muncul"><div class="kartu stat"><div class="ikon ikon-merah"><i class="bi bi-person"></i></div><div><div class="v v-merah" id="s-sisa">0</div><div class="l">Sisa Antrian</div></div></div></div>
 </div>
-<div class="card"><table>
-<thead><tr><th>Nomor Antrian</th><th>Panggil</th><th>Mulai</th><th>Selesai</th></tr></thead>
-<tbody id="rows"></tbody></table></div>{% endblock %}
-{% block script %}<script>
-const $ = id => document.getElementById(id), M = {{ meja }};
-const btn = (t, a, id, cls = '', off = false) =>
-  `<button class="${cls}" data-a="${a}" data-id="${id}" ${off ? 'disabled' : ''}>${t}</button>`;
-async function load() {
-  const s = await (await fetch(`/api/loket/${M}`)).json();
-  $('jumlah').textContent = s.jumlah; $('sekarang').textContent = s.sekarang;
-  $('nxt').textContent = s.selanjutnya; $('sisa').textContent = s.sisa;
-  $('rows').innerHTML = s.rows.map(r => `<tr>
-    <td><b>${r.nomor}</b>${r.lewat ? ' <small class="mut">(tidak hadir)</small>' : ''}</td>
-    <td>${r.panggil === '-' ? btn('Panggil', 'panggil', r.id, '', !r.bisa_panggil)
-        : r.panggil + (r.bisa_panggil ? ' ' + btn('Ulang', 'panggil', r.id, 'sec') : '')}</td>
-    <td>${r.mulai}${r.bisa_mulai ? ' ' + btn('Mulai', 'mulai', r.id) : ''}</td>
-    <td>${r.selesai}${r.bisa_selesai ? ' ' + btn('Selesai', 'selesai', r.id) : ''}${r.bisa_mulai ? ' ' + btn('Lewati', 'lewati', r.id, 'sec') : ''}</td>
-  </tr>`).join('');
+
+<section class="kartu muncul">
+  <div class="table-responsive">
+    <table class="tabel">
+      <thead><tr><th>Nomor Antrian</th><th>Panggil &amp; Mulai</th><th>Selesai</th></tr></thead>
+      <tbody id="isi"><tr><td colspan="3" class="text-secondary py-4">Memuat…</td></tr></tbody>
+    </table>
+  </div>
+  <div class="paging"><span id="info-hal"></span><div class="pg" id="pg"></div></div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/suara.js"></script>
+<script>
+const M = {{ meja|tojson }}, PER = 10;
+let data = null, hal = 1, dasar = 0, tDasar = 0, suaraCfg = {aktif: true, engine: 'auto'};
+const $ = id => document.getElementById(id);
+
+function baris(r) {
+  let panggil, selesai;
+  if (r.status === 'menunggu') {
+    panggil = `<button class="btn btn-brand" data-a="panggil" data-id="${r.id}" ${r.bisa_panggil ? '' : 'disabled'}><i class="bi bi-mic-fill me-1"></i>Panggil</button>`;
+    selesai = '<span class="text-secondary">-</span>';
+  } else if (r.status === 'aktif') {
+    const milikku = r.bisa_selesai;
+    panggil = `<div class="aksi-sel"><span class="lencana l-aktif denyut"><i class="bi bi-broadcast"></i> ${milikku ? 'Sedang dilayani' : 'Di meja lain'}</span><span class="text-secondary small">${r.panggil}</span>` +
+      (r.bisa_ulang ? `<button class="btn btn-lembut btn-ikon" title="Panggil ulang" data-a="panggil" data-id="${r.id}"><i class="bi bi-arrow-repeat"></i></button>` : '') + '</div>';
+    selesai = milikku ? `<div class="aksi-sel"><span class="timer" data-b="${r.berjalan}">${mmss(r.berjalan)}</span>` +
+      `<button class="btn btn-brand" data-a="selesai" data-id="${r.id}"><i class="bi bi-check2-circle me-1"></i>Selesai</button>` +
+      `<button class="btn btn-lembut btn-ikon" title="Tidak hadir" data-a="lewati" data-id="${r.id}"><i class="bi bi-person-x"></i></button></div>` : '<span class="text-secondary">-</span>';
+  } else {
+    panggil = `<span class="text-secondary">${r.panggil}</span>`;
+    selesai = r.status === 'lewat' ? '<span class="lencana l-lewat"><i class="bi bi-person-x"></i> Tidak hadir</span>'
+      : `<div class="aksi-sel"><span class="text-secondary">${r.selesai}</span><span class="lencana l-selesai"><i class="bi bi-stopwatch"></i> ${r.durasi}</span></div>`;
+  }
+  return `<tr class="${r.status === 'aktif' && r.bisa_selesai ? 'aktif' : ''}"><td class="no">${r.nomor}</td><td>${panggil}</td><td>${selesai}</td></tr>`;
 }
-$('rows').onclick = async e => {
-  const b = e.target.closest('button'); if (!b) return;
+
+function gambar() {
+  const rows = data.rows, total = rows.length, hm = Math.max(1, Math.ceil(total / PER));
+  hal = Math.min(hal, hm);
+  const a = (hal - 1) * PER, potong = rows.slice(a, a + PER);
+  $('isi').innerHTML = potong.length ? potong.map(baris).join('') : '<tr><td colspan="3" class="text-secondary py-4">Belum ada antrian hari ini</td></tr>';
+  $('info-hal').textContent = total ? `Menampilkan ${a + 1}–${a + potong.length} dari ${total} antrian` : 'Menampilkan 0 antrian';
+  let pg = `<button ${hal <= 1 ? 'disabled' : ''} data-h="${hal - 1}">Sebelumnya</button>`;
+  for (let i = 1; i <= hm; i++) if (i === 1 || i === hm || Math.abs(i - hal) <= 1) pg += `<button class="${i === hal ? 'on' : ''}" data-h="${i}">${i}</button>`;
+  pg += `<button ${hal >= hm ? 'disabled' : ''} data-h="${hal + 1}">Berikutnya</button>`;
+  $('pg').innerHTML = pg;
+}
+
+async function muat() {
+  try {
+    data = await api(`/api/loket/${M}`);
+    suaraCfg = data.suara; tDasar = Date.now();
+    $('s-jumlah').textContent = data.jumlah; $('s-sekarang').textContent = data.sekarang;
+    $('s-next').textContent = data.selanjutnya; $('s-sisa').textContent = data.sisa;
+    gambar();
+  } catch (e) { if (e.message !== 'login') console.warn(e); }
+}
+
+document.addEventListener('click', async ev => {
+  const h = ev.target.closest('[data-h]');
+  if (h && data) { hal = parseInt(h.dataset.h); gambar(); return; }
+  const b = ev.target.closest('button[data-a]'); if (!b) return;
+  Suara.buka();                       /* dijalankan dari klik -> browser mengizinkan suara */
   b.disabled = true;
-  const r = await fetch(`/api/loket/${M}/${b.dataset.id}/${b.dataset.a}`, {method: 'POST'});
-  if (!r.ok) alert((await r.json()).detail);
-  load();
-};
-load(); setInterval(load, 2000);
-</script>{% endblock %}
+  try {
+    const r = await api(`/api/loket/${M}/${b.dataset.id}/${b.dataset.a}`, {method: 'POST'});
+    if (b.dataset.a === 'panggil') {
+      toast('Memanggil nomor ' + r.nomor_txt, 'ok');
+      if (suaraCfg.aktif) Suara.panggil({teks: r.teks, nomor: r.nomor, meja: r.meja}, suaraCfg.engine);
+    } else if (b.dataset.a === 'selesai') toast('Layanan nomor ' + r.nomor_txt + ' selesai', 'ok');
+    else toast('Nomor ' + r.nomor_txt + ' ditandai tidak hadir');
+  } catch (e) { if (e.message !== 'login') toast(e.message, 'gagal'); }
+  muat();
+});
+
+setInterval(() => document.querySelectorAll('.timer').forEach(el => el.textContent = mmss(+el.dataset.b + Math.floor((Date.now() - tDasar) / 1000))), 1000);
+muat(); setInterval(muat, 2500);
+</script>
+{% endblock %}

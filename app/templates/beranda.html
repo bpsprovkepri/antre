@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="kartu kartu-kaca hero muncul">
+  <img src="{{ logo }}" class="logo-hero" alt="Logo {{ p.nama_instansi }}">
+  <h1>{{ p.nama_instansi }}</h1>
+  <p>Silahkan pilih halaman yang ingin ditampilkan</p>
+  <span class="chip"><i class="bi bi-calendar-event"></i> <span id="waktu">&nbsp;</span></span>
+</section>
+
+<div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3">
+  <div class="col muncul"><a class="kartu menu-kartu" href="/kiosk">
+    <div class="ikon"><i class="bi bi-people"></i></div><h3>Nomor Antrian</h3>
+    <p>Halaman Nomor Antrian digunakan pengunjung untuk mengambil nomor antrian.</p>
+    <span class="go">Tampilkan <i class="bi bi-arrow-right"></i></span></a></div>
+
+  <div class="col muncul"><button type="button" class="kartu menu-kartu" data-bs-toggle="modal" data-bs-target="#modalMeja">
+    {% if not admin %}<span class="kunci"><i class="bi bi-lock-fill"></i> Login</span>{% endif %}
+    <div class="ikon"><i class="bi bi-mic"></i></div><h3>Panggilan Antrian</h3>
+    <p>Halaman Panggilan Antrian digunakan petugas loket untuk memanggil antrian.</p>
+    <span class="go">Tampilkan <i class="bi bi-arrow-right"></i></span></button></div>
+
+  <div class="col muncul"><a class="kartu menu-kartu" href="/monitor">
+    <div class="ikon"><i class="bi bi-display"></i></div><h3>Monitor Antrian</h3>
+    <p>Halaman Monitor Antrian digunakan menampilkan antrian pada monitor.</p>
+    <span class="go">Tampilkan <i class="bi bi-arrow-right"></i></span></a></div>
+
+  <div class="col muncul"><a class="kartu menu-kartu" href="/laporan">
+    {% if not admin %}<span class="kunci"><i class="bi bi-lock-fill"></i> Login</span>{% endif %}
+    <div class="ikon ikon-biru"><i class="bi bi-bar-chart-line"></i></div><h3>Laporan Layanan</h3>
+    <p>Pantau lama layanan, waktu tunggu, dan jumlah antrian harian. Bisa diunduh ke Excel.</p>
+    <span class="go">Tampilkan <i class="bi bi-arrow-right"></i></span></a></div>
+
+  <div class="col muncul"><a class="kartu menu-kartu" href="/pengaturan">
+    {% if not admin %}<span class="kunci"><i class="bi bi-lock-fill"></i> Login</span>{% endif %}
+    <div class="ikon"><i class="bi bi-gear"></i></div><h3>Setting Antrian</h3>
+    <p>Halaman Setting Antrian digunakan untuk setting antrian.</p>
+    <span class="go">Tampilkan <i class="bi bi-arrow-right"></i></span></a></div>
+</div>
+
+<div class="modal fade" id="modalMeja" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content" style="border-radius:24px;border:0">
+    <div class="modal-header border-0 pb-0"><h5 class="modal-title fw-bold"><i class="bi bi-mic text-success me-2"></i>Pilih Meja Layanan</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button></div>
+    <div class="modal-body"><div class="d-grid gap-2">
+      {% for m in p.meja %}<a class="btn btn-lembut btn-lg text-start" href="/loket/{{ m.no }}"><i class="bi bi-person-workspace me-2"></i>{{ m.nama }}</a>{% endfor %}
+    </div></div></div></div>
+</div>
+{% endblock %}
+{% block scripts %}<script>
+const fmt = new Intl.DateTimeFormat('id-ID', {timeZone: 'Asia/Jakarta', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'});
+const tik = () => document.getElementById('waktu').textContent = fmt.format(new Date()).replace('pukul', '·');
+tik(); setInterval(tik, 15000);
+</script>{% endblock %}

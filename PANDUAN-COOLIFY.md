@@ -23,8 +23,9 @@ mengizinkan alamat server Coolify. Uji dari server Coolify:
 psql "host=DB_HOST port=5432 dbname=db-antre user=user_antre" -c "select 1"
 ```
 
-## 2. GitHub
-Repo: `https://github.com/bpsprovkepri/antre` (`main`). Perubahan berikutnya: `git add .` → `git commit -m "..."` → `git push`.
+## 2. GitHub & update aplikasi
+Repo: `https://github.com/bpsprovkepri/antre` (`main`). Setiap perubahan: `git add .` → `git commit -m "..."` → `git push`,
+lalu di Coolify klik **Redeploy** (atau otomatis bila webhook sudah dipasang). Data & pengaturan aman karena ada di PostgreSQL.
 
 ## 3. Coolify
 1. **+ New → Public Repository** → URL repo → **Check Repository**.
@@ -43,7 +44,9 @@ Repo: `https://github.com/bpsprovkepri/antre` (`main`). Perubahan berikutnya: `g
 | `ADMIN_PASSWORD` | password login petugas & laporan | **Ya** |
 | `APP_PORT` | port host untuk Nginx (mis. `21007`) | disarankan |
 | `APP_BIND` | IP Tailscale server Coolify (agar port tidak terbuka ke internet); kosongkan jika tidak perlu | disarankan |
-| `ADMIN_USER`, `NAMA_INSTANSI`, `JUMLAH_MEJA` | default `admin`, `PST BPS Provinsi Kepulauan Riau`, `3` | tidak |
+| `ADMIN_USER` | default `admin` | tidak |
+| `COOKIE_SECURE` | default `1` (login hanya lewat HTTPS). Isi `0` bila perlu uji lewat `http://` | tidak |
+| `NAMA_INSTANSI`, `JUMLAH_MEJA` | hanya isian awal; setelah itu diatur di halaman Setting | tidak |
 
 5. **Deploy** → tunggu **Running (healthy)**.
 
@@ -54,7 +57,8 @@ dengan header `Host`, `X-Forwarded-For`, `X-Forwarded-Proto` diteruskan. DNS rec
 ## 5. Uji
 1. Dari server aaPanel: `curl http://IP_TAILSCALE:APP_PORT/healthz` → `{"status":"ok"}`
 2. `https://antre-dev.gurind.am/healthz` → sama.
-3. `/kiosk` ambil nomor · `/loket/1` (login admin) Panggil → Mulai → Selesai · `/monitor` (klik sekali untuk suara) · `/laporan` + Unduh Excel.
+3. `/kiosk` ambil nomor · `/loket/1` (halaman login) klik **Panggil** (suara + layanan dimulai) → **Selesai** · `/monitor` (klik "Aktifkan Suara") · `/laporan` + Unduh Excel.
+4. `/pengaturan`: upload logo, ubah footer, meja, warna, YouTube → **Simpan** (layar monitor otomatis memuat ulang).
 
 ## 6. Cadangan
 Data ada di PostgreSQL Anda, jadi ikuti prosedur backup server database tersebut. Contoh manual:
@@ -69,6 +73,9 @@ Data ada di PostgreSQL Anda, jadi ikuti prosedur backup server database tersebut
 | Logs: `permission denied for schema public` | User tidak berhak membuat tabel: beri hak (langkah 1) atau jalankan `scripts/schema.sql` sebagai admin. |
 | `port is already allocated` | Ganti `APP_PORT`, samakan di `proxy_pass`. |
 | 502 di HTTPS | `curl` ke `IP:PORT` dari server aaPanel gagal: cek deploy, `APP_BIND`, jaringan Tailscale. |
-| Suara monitor tidak keluar | Klik banner di `/monitor`; pasang voice bahasa Indonesia di OS/Chrome. |
+| Suara tidak keluar | Klik "Aktifkan Suara" di `/monitor`. Di Setting → Suara klik **Tes Suara**; pilih mesin "Suara server" bila browser tidak punya suara Indonesia. Pastikan volume perangkat menyala. |
+| Setelah login kembali ke halaman login | Akses lewat `https://` (cookie login memakai flag Secure), atau isi `COOKIE_SECURE=0` untuk uji `http://`. |
+| Logo/warna/footer tidak berubah di TV | Layar monitor memuat ulang otomatis dalam beberapa detik; bila tidak, refresh (F5). |
+| Video YouTube tidak tampil | Perangkat monitor perlu internet; cek ID/URL di Setting (video yang melarang embed tidak bisa diputar). |
 
 Tanpa Coolify (Docker biasa + Caddy + database bawaan): lihat `DEPLOY.md` dan `docker-compose.yml`.

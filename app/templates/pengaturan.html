@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% from "_komponen.html" import header with context %}
+{% block title %}Setting Antrian · {{ p.nama_instansi }}{% endblock %}
+{% block content %}
+{{ header("bi-gear-fill", "Setting Aplikasi Antrian", "Setting") }}
+
+<form id="fp" enctype="multipart/form-data" autocomplete="off">
+<div class="row g-3">
+  <div class="col-lg-7 d-flex flex-column gap-3">
+
+    <section class="kartu muncul"><div class="jd"><i class="bi bi-building"></i> Informasi Instansi</div>
+      <div class="mb-3"><label class="form-label">Nama Instansi</label><input class="form-control" name="nama_instansi" value="{{ p.nama_instansi }}" maxlength="120" required></div>
+      <div class="mb-3"><label class="form-label">Alamat Lengkap</label><textarea class="form-control" name="alamat" rows="2" maxlength="250">{{ p.alamat }}</textarea></div>
+      <div class="row g-3 mb-3">
+        <div class="col-md-5"><label class="form-label">Telpon</label><input class="form-control" name="telpon" value="{{ p.telpon }}" maxlength="40"></div>
+        <div class="col-md-7"><label class="form-label">Email</label><input class="form-control" name="email" value="{{ p.email }}" maxlength="100"></div>
+      </div>
+      <div class="mb-3"><label class="form-label">Running Text</label><textarea class="form-control" name="running_text" rows="2" maxlength="300">{{ p.running_text }}</textarea></div>
+      <div><label class="form-label">YouTube ID</label><input class="form-control" name="youtube_id" value="{{ p.youtube_id }}" maxlength="300" placeholder="ID video, ID playlist, atau tempel URL YouTube">
+        <div class="form-text">Boleh format lama (<code>ID?autoplay=1&amp;list=...</code>) atau URL lengkap. Video diputar berulang tanpa suara di layar monitor.</div></div>
+    </section>
+
+    <section class="kartu muncul"><div class="jd"><i class="bi bi-window-stack"></i> Tampilan</div>
+      <div class="mb-3"><label class="form-label">Judul Layar Monitor</label><input class="form-control" name="judul_monitor" value="{{ p.judul_monitor }}" maxlength="80"></div>
+      <div><label class="form-label">Footer (Beranda &amp; Monitor)</label>
+        <input class="form-control" id="footer_text" name="footer_text" value="{{ p.footer_text }}" maxlength="200" placeholder="Made with ❤️ Tim Teknologi Informasi BPS Provinsi Kepulauan Riau">
+        <div class="form-text">Bebas diisi teks/emoji. Gunakan <code>{tahun}</code> dan <code>{instansi}</code> bila perlu.</div>
+        <div class="mt-2 p-2 rounded-3 bg-light text-center small" id="prevFooter"></div></div>
+    </section>
+
+    <section class="kartu muncul"><div class="jd"><i class="bi bi-person-workspace"></i> Daftar Meja</div>
+      <div class="row g-2 mb-1 text-secondary small fw-semibold"><div class="col-3">Nomor Meja</div><div class="col-7">Nama Meja</div></div>
+      <div id="daftarMeja"></div>
+      <button type="button" class="btn btn-lembut mt-2" id="tambahMeja"><i class="bi bi-plus-lg me-1"></i>Tambah Meja</button>
+    </section>
+
+    <section class="kartu muncul"><div class="jd"><i class="bi bi-volume-up"></i> Suara Panggilan</div>
+      <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" role="switch" id="sl" name="suara_loket" value="1" {{ 'checked' if p.suara_loket }}><label class="form-check-label" for="sl">Bunyikan suara di halaman petugas saat tombol Panggil diklik</label></div>
+      <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" role="switch" id="sm" name="suara_monitor" value="1" {{ 'checked' if p.suara_monitor }}><label class="form-check-label" for="sm">Bunyikan suara di layar Monitor</label></div>
+      <div class="row g-3 align-items-end"><div class="col-md-7"><label class="form-label">Mesin suara</label>
+        <select class="form-select" name="suara_engine" id="engine">
+          <option value="auto" {{ 'selected' if p.suara_engine == 'auto' }}>Otomatis (suara browser, cadangan suara server)</option>
+          <option value="browser" {{ 'selected' if p.suara_engine == 'browser' }}>Suara browser saja</option>
+          <option value="server" {{ 'selected' if p.suara_engine == 'server' }}>Suara server (selalu ada, lebih datar)</option>
+        </select></div>
+        <div class="col-md-5"><button type="button" class="btn btn-lembut w-100" id="tesSuara"><i class="bi bi-play-circle me-1"></i>Tes Suara</button></div></div>
+      <div class="form-text mt-2" id="infoSuara"></div>
+      <div class="form-text">Bila kedua saklar aktif dan petugas berada satu ruangan dengan layar monitor, panggilan terdengar dua kali. Matikan salah satunya.</div>
+    </section>
+
+    <section class="kartu muncul"><div class="jd"><i class="bi bi-printer"></i> Printer Nomor Antrian <span class="lencana l-menunggu ms-1">Nonaktif bawaan</span></div>
+      <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" role="switch" id="pa" name="printer_aktif" value="1" {{ 'checked' if p.printer_aktif }}><label class="form-check-label" for="pa">Cetak nomor antrian otomatis saat pengunjung mengambil nomor</label></div>
+      <div class="row g-3 mb-3">
+        <div class="col-md-6"><label class="form-label">Alamat printer (IP / hostname)</label><input class="form-control" name="printer_host" value="{{ p.printer_host }}" placeholder="192.168.1.50" maxlength="253"></div>
+        <div class="col-md-3"><label class="form-label">Port</label><input class="form-control" type="number" min="1" max="65535" name="printer_port" value="{{ p.printer_port }}"></div>
+        <div class="col-md-3"><label class="form-label">Lebar kertas</label><select class="form-select" name="printer_lebar">
+          {% for v, t in (("32","58 mm (32 kar.)"),("42","80 mm (42 kar.)"),("48","80 mm (48 kar.)")) %}<option value="{{ v }}" {{ 'selected' if p.printer_lebar|string == v }}>{{ t }}</option>{% endfor %}</select></div>
+      </div>
+      <div class="mb-3"><label class="form-label">Teks penutup struk</label><input class="form-control" name="printer_footer" value="{{ p.printer_footer }}" maxlength="100"></div>
+      <button type="button" class="btn btn-lembut" id="tesCetak"><i class="bi bi-printer me-1"></i>Tes Cetak</button>
+      <div class="form-text mt-2">Untuk printer thermal (ESC/POS) yang terhubung jaringan dan menerima cetak langsung lewat port 9100. Server aplikasi harus dapat menjangkau alamat printer. Tombol cetak tidak ditampilkan di layar pengunjung.</div>
+    </section>
+  </div>
+
+  <div class="col-lg-5 d-flex flex-column gap-3">
+    <section class="kartu muncul"><div class="jd"><i class="bi bi-palette"></i> Styling Monitor &amp; Logo</div>
+      <div class="logo-prev mb-3"><img id="prevLogo" src="{{ logo }}" alt="Logo"></div>
+      <label class="form-label">Pilih Logo</label>
+      <input class="form-control mb-1" type="file" name="logo" id="fileLogo" accept="image/png,image/jpeg,image/gif,image/webp">
+      <div class="form-text mb-2">PNG/JPG/GIF/WEBP, maks 2 MB. Tersimpan di database (tidak hilang saat redeploy).</div>
+      {% if p.punya_logo %}<button type="button" class="btn btn-lembut btn-sm mb-3" id="hapusLogo"><i class="bi bi-trash me-1"></i>Kembalikan logo bawaan</button>{% endif %}
+      <div class="row g-3">
+        {% for k, t in (("warna_primary","Warna Primary"),("warna_secondary","Warna Secondary"),("warna_accent","Warna Accent"),("warna_background","Warna Background"),("warna_text","Warna Text")) %}
+        <div class="col-6"><label class="form-label">{{ t }}</label><input type="color" class="warna-in" name="{{ k }}" value="{{ p[k] }}"></div>{% endfor %}
+      </div>
+      <div class="form-text mt-3">Primary = warna tema aplikasi &amp; bilah monitor · Accent = sorotan saat nomor baru dipanggil · Background/Text = latar &amp; teks layar monitor.</div>
+    </section>
+  </div>
+</div>
+</form>
+
+<div class="kartu kartu-kaca bar-simpan noprint">
+  <a class="btn btn-lembut me-auto" href="/"><i class="bi bi-house-fill me-1"></i>Beranda</a>
+  <button class="btn btn-brand" type="submit" form="fp" id="simpan"><i class="bi bi-save me-1"></i>Simpan</button>
+  <form method="post" action="/logout" class="m-0"><button class="btn btn-danger"><i class="bi bi-box-arrow-right me-1"></i>Logout</button></form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/suara.js"></script>
+<script>
+const $ = id => document.getElementById(id), F = $('fp');
+const MEJA = {{ p.meja|tojson }}, SUARA_SERVER = {{ suara_server|tojson }}, NAMA = {{ p.nama_instansi|tojson }};
+
+/* daftar meja dinamis */
+function barisMeja(m) {
+  const d = document.createElement('div'); d.className = 'row g-2 mb-2 align-items-center';
+  d.innerHTML = `<div class="col-3"><input class="form-control" type="number" min="1" max="99" name="meja_no" value="${m.no}" required></div>
+  <div class="col-7"><input class="form-control" name="meja_nama" value="${esc(m.nama)}" maxlength="30" required></div>
+  <div class="col-2"><button type="button" class="btn btn-danger btn-ikon" title="Hapus meja"><i class="bi bi-trash"></i></button></div>`;
+  d.querySelector('button').onclick = () => { if (document.querySelectorAll('#daftarMeja .row').length > 1) d.remove(); else toast('Minimal harus ada satu meja', 'gagal'); };
+  $('daftarMeja').appendChild(d);
+}
+MEJA.forEach(barisMeja);
+$('tambahMeja').onclick = () => { const no = [...document.querySelectorAll('[name=meja_no]')].map(i => +i.value); const n = Math.max(0, ...no) + 1; barisMeja({no: n, nama: 'Meja ' + n}); };
+
+/* pratinjau footer & logo */
+const pf = () => $('prevFooter').textContent = $('footer_text').value.replaceAll('{tahun}', new Date().getFullYear()).replaceAll('{instansi}', F.nama_instansi.value) || '(kosong)';
+$('footer_text').oninput = pf; F.nama_instansi.oninput = pf; pf();
+$('fileLogo').onchange = e => { const f = e.target.files[0]; if (f) { if (f.size > 2 * 1024 * 1024) { toast('Ukuran logo maksimal 2 MB', 'gagal'); e.target.value = ''; return; } $('prevLogo').src = URL.createObjectURL(f); } };
+if ($('hapusLogo')) $('hapusLogo').onclick = async () => { if (!confirm('Kembalikan ke logo bawaan?')) return; try { await api('/api/pengaturan/logo/hapus', {method: 'POST'}); location.reload(); } catch (e) { toast(e.message, 'gagal'); } };
+
+/* simpan */
+F.onsubmit = async ev => {
+  ev.preventDefault(); const b = $('simpan'); b.disabled = true;
+  try { await api('/api/pengaturan', {method: 'POST', body: new FormData(F)}); toast('Pengaturan tersimpan', 'ok'); setTimeout(() => location.reload(), 900); }
+  catch (e) { toast(e.message, 'gagal'); b.disabled = false; }
+};
+
+/* tes suara */
+$('infoSuara').innerHTML = (Suara.adaSuaraId ? '<i class="bi bi-check-circle-fill text-success"></i> Browser ini punya suara Indonesia.' : '<i class="bi bi-info-circle-fill text-warning"></i> Browser ini belum punya suara Indonesia.') +
+  (SUARA_SERVER ? ' Suara server tersedia.' : ' Suara server tidak tersedia.');
+$('tesSuara').onclick = () => { Suara.buka(); Suara.panggil({teks: 'Nomor antrian, satu, silakan menuju, meja satu', nomor: 1, meja: MEJA[0].no}, $('engine').value); };
+
+/* tes cetak */
+$('tesCetak').onclick = async () => {
+  const b = $('tesCetak'); b.disabled = true;
+  try { const r = await api('/api/pengaturan/tes-cetak', {method: 'POST', body: new FormData(F)}); toast(r.pesan, 'ok'); }
+  catch (e) { toast(e.message, 'gagal'); }
+  b.disabled = false;
+};
+</script>
+{% endblock %}

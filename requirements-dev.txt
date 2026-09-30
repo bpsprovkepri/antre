@@ -1,3 +1,4 @@
 -r requirements.txt
 pgserver
 httpx
+pytest

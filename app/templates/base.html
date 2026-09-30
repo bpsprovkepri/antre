@@ -1,15 +1,25 @@
-<!doctype html><html lang="id"><head><meta charset="utf-8">
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Antrian – {{ nama }}</title>
-<style>
-:root{--g:#1a8f4a;--mut:#6b7280}
-*{box-sizing:border-box}body{margin:0;font:16px system-ui,sans-serif;background:#f5f6fb;color:#1f2937}
-.wrap{max-width:1100px;margin:0 auto;padding:20px}
-.card{background:#fff;border-radius:14px;box-shadow:0 1px 4px #0001;padding:18px;margin-bottom:16px;display:block;color:inherit;text-decoration:none}
-.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
-.big{font-size:2rem;color:var(--g);margin:0}.mut{color:var(--mut)}
-table{width:100%;border-collapse:collapse}th,td{padding:10px;border:1px solid #e5e7eb;text-align:center}th{background:#fafafa}
-button,.btn{background:var(--g);color:#fff;border:0;border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer;text-decoration:none;display:inline-block}
-button:disabled{background:#d1d5db;cursor:not-allowed}.sec{background:var(--mut)}
-@media print{button,.noprint{display:none!important}}
-</style></head><body><div class="wrap">{% block body %}{% endblock %}</div>{% block script %}{% endblock %}</body></html>
+<meta name="theme-color" content="{{ warna.brand }}">
+<title>{% block title %}{{ p.nama_instansi }}{% endblock %}</title>
+<link rel="icon" href="{{ logo }}">
+<link rel="stylesheet" href="/static/vendor/bootstrap/bootstrap.min.css">
+<link rel="stylesheet" href="/static/vendor/bootstrap-icons/bootstrap-icons.min.css">
+<link rel="stylesheet" href="/static/vendor/inter/inter.css">
+<link rel="stylesheet" href="/static/css/app.css">
+<style>:root{--brand:{{ warna.brand }};--brand-dark:{{ warna.brand_dark }};--brand-light:{{ warna.brand_light }};--brand-soft:{{ warna.brand_soft }};--brand-soft2:{{ warna.brand_soft2 }};--on-brand:{{ warna.on_brand }}}</style>
+{% block head %}{% endblock %}
+</head>
+<body>
+<main class="wrap-app">
+{% block content %}{% endblock %}
+</main>
+{% block footer %}<footer class="footer-app">{{ footer }}</footer>{% endblock %}
+<script src="/static/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+<script src="/static/js/app.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

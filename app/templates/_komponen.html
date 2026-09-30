@@ -1,0 +1,16 @@
+{# Header halaman: tombol Beranda + breadcrumb. Dipakai semua sub menu agar mudah kembali ke home. #}
+{% macro header(ikon, judul, crumb) %}
+<header class="kartu kartu-kaca judul-halaman muncul">
+  <div class="d-flex align-items-center gap-3">
+    <a href="/" class="btn-home" title="Kembali ke Beranda" aria-label="Kembali ke Beranda"><i class="bi bi-house-fill"></i></a>
+    <div class="ikon ikon-sm"><i class="bi {{ ikon }}"></i></div>
+    <h1>{{ judul }}</h1>
+  </div>
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="/"><i class="bi bi-house-fill"></i> Beranda</a></li>
+      <li class="breadcrumb-item active" aria-current="page">{{ crumb }}</li>
+    </ol>
+  </nav>
+</header>
+{% endmacro %}
