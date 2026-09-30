@@ -1,5 +1,8 @@
-# Compose khusus Coolify. TANPA "ports:" dan TANPA Caddy: routing + HTTPS dikelola proxy Coolify.
-# Domain diisi di UI Coolify (kolom Domains service "app"), bukan di file ini.
+# Compose khusus Coolify, untuk skema: Nginx eksternal (aaPanel) -> port host -> kontainer app.
+# Port host dipublikasikan langsung (melewati proxy Coolify), jadi JANGAN isi Domains di Coolify.
+# Atur lewat Environment Variables di Coolify:
+#   APP_BIND = IP yang di-listen di server (disarankan IP Tailscale server ini; default 0.0.0.0)
+#   APP_PORT = port host untuk proxy_pass Nginx (default 8097)
 services:
   db:
     image: postgres:16-alpine
@@ -18,6 +21,8 @@ services:
 
   app:
     build: .
+    ports:
+      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-8097}:8000"
     depends_on:
       db:
         condition: service_healthy
