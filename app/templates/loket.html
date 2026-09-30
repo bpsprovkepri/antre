@@ -1,0 +1,36 @@
+{% extends "base.html" %}{% block body %}
+<div class="card"><h1>Panggilan Antrian Meja {{ meja }}</h1><a href="/">← Menu</a></div>
+<div class="grid">
+<div class="card"><p class="big" id="jumlah">-</p>Jumlah Antrian</div>
+<div class="card"><p class="big" id="sekarang">-</p>Antrian Sekarang</div>
+<div class="card"><p class="big" id="nxt">-</p>Antrian Selanjutnya</div>
+<div class="card"><p class="big" id="sisa">-</p>Sisa Antrian</div>
+</div>
+<div class="card"><table>
+<thead><tr><th>Nomor Antrian</th><th>Panggil</th><th>Mulai</th><th>Selesai</th></tr></thead>
+<tbody id="rows"></tbody></table></div>{% endblock %}
+{% block script %}<script>
+const $ = id => document.getElementById(id), M = {{ meja }};
+const btn = (t, a, id, cls = '', off = false) =>
+  `<button class="${cls}" data-a="${a}" data-id="${id}" ${off ? 'disabled' : ''}>${t}</button>`;
+async function load() {
+  const s = await (await fetch(`/api/loket/${M}`)).json();
+  $('jumlah').textContent = s.jumlah; $('sekarang').textContent = s.sekarang;
+  $('nxt').textContent = s.selanjutnya; $('sisa').textContent = s.sisa;
+  $('rows').innerHTML = s.rows.map(r => `<tr>
+    <td><b>${r.nomor}</b>${r.lewat ? ' <small class="mut">(tidak hadir)</small>' : ''}</td>
+    <td>${r.panggil === '-' ? btn('Panggil', 'panggil', r.id, '', !r.bisa_panggil)
+        : r.panggil + (r.bisa_panggil ? ' ' + btn('Ulang', 'panggil', r.id, 'sec') : '')}</td>
+    <td>${r.mulai}${r.bisa_mulai ? ' ' + btn('Mulai', 'mulai', r.id) : ''}</td>
+    <td>${r.selesai}${r.bisa_selesai ? ' ' + btn('Selesai', 'selesai', r.id) : ''}${r.bisa_mulai ? ' ' + btn('Lewati', 'lewati', r.id, 'sec') : ''}</td>
+  </tr>`).join('');
+}
+$('rows').onclick = async e => {
+  const b = e.target.closest('button'); if (!b) return;
+  b.disabled = true;
+  const r = await fetch(`/api/loket/${M}/${b.dataset.id}/${b.dataset.a}`, {method: 'POST'});
+  if (!r.ok) alert((await r.json()).detail);
+  load();
+};
+load(); setInterval(load, 2000);
+</script>{% endblock %}

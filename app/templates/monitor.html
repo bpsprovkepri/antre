@@ -1,0 +1,27 @@
+{% extends "base.html" %}{% block body %}
+<div id="ov" class="card" style="text-align:center;cursor:pointer"><b>Klik di sini untuk mengaktifkan suara panggilan</b></div>
+<div class="card" style="text-align:center"><p class="mut">NOMOR ANTRIAN</p>
+<p id="no" class="big" style="font-size:9rem">-</p><h2 id="mj">-</h2></div>
+<div class="card"><div id="aktif" class="grid"></div></div>
+<p class="mut" style="text-align:center">Sisa antrian: <b id="sisa">0</b></p>{% endblock %}
+{% block script %}<script>
+const $ = id => document.getElementById(id), pad = n => String(n).padStart(3, '0');
+let ready = false, key = '';
+function bicara(n, m) {
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(`Nomor antrian ${n}, silakan menuju meja ${m}`);
+  u.lang = 'id-ID'; u.rate = 0.9; speechSynthesis.speak(u);
+}
+$('ov').onclick = () => { $('ov').hidden = true; speechSynthesis.speak(new SpeechSynthesisUtterance('')); };
+async function poll() {
+  const s = await (await fetch('/api/monitor')).json();
+  $('sisa').textContent = s.sisa;
+  $('aktif').innerHTML = s.aktif.map(a =>
+    `<div style="text-align:center"><div class="mut">Meja ${a.meja}</div><b class="big">${pad(a.nomor)}</b></div>`).join('');
+  const l = s.last, k = l ? l.id + ':' + l.panggil_n : '';
+  if (l) { $('no').textContent = pad(l.nomor); $('mj').textContent = 'MEJA ' + l.meja; }
+  if (ready && k && k !== key) bicara(l.nomor, l.meja);
+  key = k; ready = true;
+}
+poll(); setInterval(poll, 2000);
+</script>{% endblock %}

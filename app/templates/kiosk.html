@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% block body %}
+<div class="card" style="text-align:center;padding:40px">
+<h1>{{ nama }}</h1><p class="mut">Nomor antrian Anda</p>
+<p id="no" class="big" style="font-size:6rem">—</p><p id="tgl" class="mut"></p>
+<button id="ambil" style="font-size:1.6rem;padding:18px 40px">Ambil Nomor</button>
+<button id="cetak" class="sec" hidden onclick="print()">Cetak</button>
+</div>{% endblock %}
+{% block script %}<script>
+const $ = id => document.getElementById(id);
+$('ambil').onclick = async () => {
+  $('ambil').disabled = true;
+  const j = await (await fetch('/api/tiket', {method: 'POST'})).json();
+  $('no').textContent = String(j.nomor).padStart(3, '0');
+  $('tgl').textContent = new Date().toLocaleString('id-ID');
+  $('cetak').hidden = false;
+  setTimeout(() => $('ambil').disabled = false, 1500);
+};
+</script>{% endblock %}

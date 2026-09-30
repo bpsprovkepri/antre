@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% block body %}
+<div class="card noprint"><h1>Laporan Lama Layanan</h1>
+<form method="get"><input type="date" name="tanggal" value="{{ tanggal }}"> <button>Tampilkan</button>
+<a class="btn sec" href="/laporan.xlsx?tanggal={{ tanggal }}">Unduh Excel</a> <a href="/">Menu</a></form></div>
+<div class="grid">
+<div class="card"><p class="big">{{ ring.total }}</p>Total antrian</div>
+<div class="card"><p class="big">{{ ring.selesai }}</p>Selesai dilayani</div>
+<div class="card"><p class="big">{{ ring.lewat }}</p>Tidak hadir</div>
+<div class="card"><p class="big">{{ ring.rata_layanan }}</p>Rata-rata lama layanan (mm:ss)</div>
+<div class="card"><p class="big">{{ ring.maks_layanan }}</p>Layanan terlama</div>
+<div class="card"><p class="big">{{ ring.rata_tunggu }}</p>Rata-rata waktu tunggu</div>
+</div>
+<div class="card" style="overflow-x:auto"><table>
+<thead><tr><th>Nomor</th><th>Meja</th><th>Ambil</th><th>Panggil</th><th>Mulai</th><th>Selesai</th><th>Tunggu</th><th>Layanan</th></tr></thead>
+<tbody>{% for x in rows %}<tr><td><b>{{ p3(x.nomor) }}</b>{% if x.lewat %} <small class="mut">(tidak hadir)</small>{% endif %}</td>
+<td>{{ x.meja or '-' }}</td><td>{{ hms(x.dibuat_at) }}</td><td>{{ hms(x.dipanggil_at) }}</td><td>{{ hms(x.mulai_at) }}</td>
+<td>{{ hms(x.selesai_at) }}</td><td>{{ mmss(x.tunggu) }}</td><td>{{ mmss(x.layanan) }}</td></tr>
+{% else %}<tr><td colspan="8" class="mut">Belum ada data pada tanggal ini</td></tr>{% endfor %}</tbody></table></div>{% endblock %}
