@@ -104,6 +104,8 @@ background:linear-gradient(160deg,#fff,var(--brand-soft))}
 
 /* form */
 .form-control,.form-select{border-radius:14px;border-color:var(--line);padding:.6rem .9rem}
+/* ruang untuk tanda panah dropdown: padding kanan harus lebih besar agar teks (mis. tahun 2026) tidak tertimpa panah */
+.form-select{padding-right:2.6rem;background-position:right .85rem center;background-size:14px 11px;min-width:5.5rem}
 .form-control:focus,.form-select:focus{border-color:var(--brand-light);box-shadow:0 0 0 .22rem var(--brand-soft2)}
 .form-label{font-weight:600;font-size:.88rem;margin-bottom:.35rem}
 .form-text{font-size:.8rem}
