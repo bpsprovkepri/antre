@@ -10,6 +10,7 @@ Stack: Python 3.12 · FastAPI · PostgreSQL · Bootstrap 5 (disalin lokal) · Do
 | `/kiosk` | Pengunjung ambil nomor (tanpa tombol cetak) | – |
 | `/monitor` | Layar TV PST: video YouTube berulang, nomor sekarang, selanjutnya + meja, sisa antrian, suara panggilan | – |
 | `/loket/{n}` | Petugas meja: **Panggil** (sekaligus mulai) → **Selesai** (+ panggil ulang, tidak hadir) | ya |
+| `/data` | **Kelola Data**: edit status/meja/waktu tiket dan hapus data (per baris, terpilih, atau semua pada satu tanggal) | ya |
 | `/laporan` | Laporan **harian**, **bulanan** (pilih bulan & tahun), **tahunan** (pilih tahun), **rentang tanggal** (awal–akhir, maks 366 hari); grafik, ringkasan per meja, unduh Excel | ya |
 | `/pengaturan` | Instansi, footer, meja, logo & warna, suara, printer | ya |
 
@@ -55,6 +56,7 @@ Saat pertama kali jalan, pengaturan awal (nama, alamat, YouTube, warna, daftar m
 ```
 app/main.py         route halaman & API      app/pengaturan.py  pengaturan, logo, YouTube
 app/antrian.py      logika antrian           app/laporan.py     laporan & Excel
+app/kelola.py       edit & hapus data tiket
 app/printer.py      cetak ESC/POS
 app/suara.py        suara server (espeak-ng) app/db.py           koneksi & skema
 app/templates/      HTML (Jinja)             app/static/        CSS, JS, Bootstrap lokal

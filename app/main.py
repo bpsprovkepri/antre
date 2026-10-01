@@ -10,9 +10,11 @@ from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Requ
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import antrian, config, db, laporan as lap, pengaturan, printer, suara
+from . import antrian, config, db, kelola, laporan as lap, pengaturan, printer, suara
+from .util import hari_ini, tanggal_id
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 
@@ -180,6 +182,13 @@ def halaman_pengaturan(request: Request):
     return render(request, "pengaturan.html", suara_server=suara.tersedia())
 
 
+@app.get("/data", response_class=HTMLResponse, dependencies=[Depends(admin_halaman)])
+def halaman_data(request: Request, tanggal: date | None = None):
+    t = tanggal or hari_ini()
+    return render(request, "data.html", tanggal=t, tanggal_iso=t.isoformat(), tanggal_teks=tanggal_id(t),
+                  hari_ini=hari_ini().isoformat())
+
+
 @app.get("/logo")
 def logo():
     r = pengaturan.ambil_logo()
@@ -235,6 +244,53 @@ def api_aksi(meja: int, id_: int, aksi: str):
     if not r:
         raise HTTPException(409, "Aksi tidak diizinkan untuk status antrian saat ini")
     return {"ok": True, "nomor": r["nomor"], "nomor_txt": r["nomor_txt"], "meja": r["meja"], "teks": r["teks"], "n": r["panggil_n"]}
+
+
+# ---------- API kelola data (koreksi & hapus) ----------
+class UbahTiket(BaseModel):
+    status: str = ""
+    meja: int | None = None
+    dibuat: str | None = None
+    dipanggil: str | None = None
+    selesai: str | None = None
+
+
+class HapusTiket(BaseModel):
+    ids: list[int] = []
+
+
+class HapusTanggal(BaseModel):
+    tanggal: date
+
+
+def _kelola(fn, *a):
+    try:
+        return fn(*a)
+    except kelola.TidakAda as e:
+        raise HTTPException(404, str(e))
+    except kelola.DataError as e:
+        raise HTTPException(422, str(e))
+
+
+@app.get("/api/data", dependencies=[Depends(admin_api)])
+def api_data(tanggal: date | None = None):
+    t = tanggal or hari_ini()
+    return {"tanggal": t.isoformat(), "rows": kelola.daftar(t)}
+
+
+@app.post("/api/data/hapus", dependencies=[Depends(admin_api)])
+def api_data_hapus(b: HapusTiket):
+    return {"ok": True, "terhapus": _kelola(kelola.hapus, b.ids)}
+
+
+@app.post("/api/data/hapus-tanggal", dependencies=[Depends(admin_api)])
+def api_data_hapus_tanggal(b: HapusTanggal):
+    return {"ok": True, "terhapus": _kelola(kelola.hapus_tanggal, b.tanggal)}
+
+
+@app.post("/api/data/{id_}/ubah", dependencies=[Depends(admin_api)])
+def api_data_ubah(id_: int, b: UbahTiket):
+    return {"ok": True, **_kelola(kelola.ubah, id_, b.model_dump(), pengaturan.get())}
 
 
 @app.post("/api/pengaturan", dependencies=[Depends(admin_api)])

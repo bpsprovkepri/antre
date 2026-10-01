@@ -63,7 +63,7 @@ def test_seed_dari_tabel_lama_dan_tabel_lama_utuh(klien, mod):
 def test_halaman_publik(klien):
     r = klien.get("/")
     assert r.status_code == 200
-    for teks in ("Nomor Antrian", "Panggilan Antrian", "Monitor Antrian", "Setting Antrian", "Laporan Layanan", "Meja 2"):
+    for teks in ("Nomor Antrian", "Panggilan Antrian", "Monitor Antrian", "Setting Antrian", "Laporan Layanan", "Kelola Data", "Meja 2"):
         assert teks in r.text
     k = klien.get("/kiosk")
     assert k.status_code == 200 and "Ambil Nomor" in k.text and 'href="/"' in k.text     # ada navigasi ke home
@@ -464,7 +464,7 @@ def test_sintaks_javascript(admin):
     if not shutil.which("node"):
         pytest.skip("node tidak terpasang")
     daftar = []
-    for url in ("/", "/kiosk", "/monitor", "/loket/1", "/laporan", "/pengaturan"):
+    for url in ("/", "/kiosk", "/monitor", "/loket/1", "/laporan", "/pengaturan", "/data"):
         for i, js in enumerate(re.findall(r"<script(?![^>]*src)[^>]*>(.*?)</script>", admin.get(url).text, re.S)):
             daftar.append((f"{url}#{i}", js))
     for f in ("app.js", "suara.js"):
@@ -475,3 +475,135 @@ def test_sintaks_javascript(admin):
             t.write(js)
         r = subprocess.run(["node", "--check", t.name], capture_output=True, text=True)
         assert r.returncode == 0, f"{nama}: {r.stderr}"
+
+
+# ---------- kelola data (edit & hapus) ----------
+def _seed_kemarin(k):
+    """3 tiket kemarin: 001 selesai (meja 1), 002 selesai (meja 2), 003 menunggu. Mengembalikan (tanggal, {nomor: id})."""
+    from datetime import timedelta
+
+    from app.util import hari_ini
+    t = hari_ini() - timedelta(days=1)
+    k.srv.psql(f"""
+      DELETE FROM queue_tiket;
+      INSERT INTO queue_tiket(tanggal, nomor, meja, dibuat_at, dipanggil_at, mulai_at, selesai_at, lewat, panggil_n, last_call_at) VALUES
+       ('{t}',1,1,'{t} 09:00:00+07','{t} 09:02:00+07','{t} 09:02:00+07','{t} 09:07:00+07',false,1,'{t} 09:02:00+07'),
+       ('{t}',2,2,'{t} 09:05:00+07','{t} 09:10:00+07','{t} 09:10:00+07','{t} 09:12:00+07',false,1,'{t} 09:10:00+07');
+      INSERT INTO queue_tiket(tanggal, nomor, dibuat_at) VALUES ('{t}',3,'{t} 09:20:00+07');
+    """)
+    rows = k.get(f"/api/data?tanggal={t}").json()["rows"]
+    return t, {r["nomor"]: r["id"] for r in rows}
+
+
+def _ubah(k, id_, **kw):
+    return k.post(f"/api/data/{id_}/ubah", json=kw)
+
+
+def test_kelola_wajib_login(klien):
+    klien.cookies.clear()
+    r = klien.get("/data", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("/login?next=/data")
+    assert klien.get("/api/data").status_code == 401
+    assert klien.post("/api/data/1/ubah", json={"status": "menunggu"}).status_code == 401
+    assert klien.post("/api/data/hapus", json={"ids": [1]}).status_code == 401
+    assert klien.post("/api/data/hapus-tanggal", json={"tanggal": "2026-01-01"}).status_code == 401
+
+
+def test_halaman_kelola_data(admin):
+    r = admin.get("/data")
+    assert r.status_code == 200
+    for teks in ("Kelola Data Antrian", "Hapus terpilih", "Hapus semua tanggal ini", "Simpan perubahan", 'href="/"', "Meja 2"):
+        assert teks in r.text
+    assert admin.get("/data?tanggal=2026-08-03").status_code == 200
+    assert admin.get("/data?tanggal=bukan-tanggal").status_code == 422
+    assert "Kelola Data" in admin.get("/").text and 'href="/data"' in admin.get("/").text
+
+
+def test_kelola_ubah_waktu_dan_status(admin):
+    from app import db
+    k = admin
+    t, ids = _seed_kemarin(k)
+    rows = {r["nomor"]: r for r in k.get(f"/api/data?tanggal={t}").json()["rows"]}
+    assert [rows[n]["status"] for n in (1, 2, 3)] == ["selesai", "selesai", "menunggu"]
+    assert rows[1]["durasi"] == "05:00" and rows[1]["dipanggil_iso"] == f"{t}T09:02:00" and rows[3]["meja_nama"] == "-"
+
+    # koreksi waktu: lama layanan berubah, mulai ikut waktu dipanggil
+    r = _ubah(k, ids[1], status="selesai", meja=1, dibuat=f"{t}T09:00:00", dipanggil=f"{t}T09:03:00", selesai=f"{t}T09:09:30")
+    assert r.status_code == 200 and r.json()["nomor_txt"] == "001"
+    d = k.get(f"/api/data?tanggal={t}").json()["rows"][0]
+    assert d["durasi"] == "06:30" and d["dipanggil"] == "09:03:00" and d["selesai"] == "09:09:30"
+    row = db.q("SELECT dipanggil_at = mulai_at AS sama, lewat FROM queue_tiket WHERE id=%s", (ids[1],), one=True)
+    assert row["sama"] is True and row["lewat"] is False
+
+    # selesai -> tidak hadir -> menunggu (kolom ikut dibersihkan)
+    assert _ubah(k, ids[2], status="lewat", meja=2, dibuat=f"{t}T09:05:00", dipanggil=f"{t}T09:10:00", selesai=f"{t}T09:11:00").status_code == 200
+    assert {r["nomor"]: r["status"] for r in k.get(f"/api/data?tanggal={t}").json()["rows"]}[2] == "lewat"
+    assert _ubah(k, ids[2], status="menunggu", meja=2, dibuat=f"{t}T09:05:00", dipanggil=f"{t}T09:10:00", selesai=f"{t}T09:11:00").status_code == 200
+    row = db.q("SELECT meja, dipanggil_at, mulai_at, selesai_at, lewat, panggil_n, last_call_at FROM queue_tiket WHERE id=%s", (ids[2],), one=True)
+    assert row == {"meja": None, "dipanggil_at": None, "mulai_at": None, "selesai_at": None, "lewat": False, "panggil_n": 0, "last_call_at": None}
+
+    # menunggu -> selesai (data yang tadinya belum dilayani dilengkapi)
+    assert _ubah(k, ids[3], status="selesai", meja=2, dibuat=f"{t}T09:20:00", dipanggil=f"{t}T09:25:00", selesai=f"{t}T09:28:00").status_code == 200
+    row = db.q("SELECT meja, panggil_n, last_call_at IS NOT NULL AS ada FROM queue_tiket WHERE id=%s", (ids[3],), one=True)
+    assert row == {"meja": 2, "panggil_n": 1, "ada": True}
+
+
+def test_kelola_ubah_validasi(admin):
+    from datetime import timedelta
+
+    from app.util import hari_ini
+    k = admin
+    t, ids = _seed_kemarin(k)
+    dasar = dict(status="selesai", meja=1, dibuat=f"{t}T09:00:00", dipanggil=f"{t}T09:02:00", selesai=f"{t}T09:07:00")
+    tolak = lambda **kw: _ubah(k, ids[1], **{**dasar, **kw})
+    r = tolak(selesai=f"{t}T09:01:00"); assert r.status_code == 422 and "selesai tidak boleh lebih awal" in r.json()["detail"]
+    r = tolak(dipanggil=f"{t}T08:00:00"); assert r.status_code == 422 and "dipanggil tidak boleh lebih awal" in r.json()["detail"]
+    r = tolak(selesai=""); assert r.status_code == 422 and "selesai wajib" in r.json()["detail"]
+    r = tolak(dibuat=""); assert r.status_code == 422 and "ambil nomor wajib" in r.json()["detail"]
+    r = tolak(dibuat="bukan waktu"); assert r.status_code == 422 and "tidak valid" in r.json()["detail"]
+    r = tolak(meja=99); assert r.status_code == 422 and "Meja tidak ditemukan" in r.json()["detail"]
+    r = tolak(meja=None); assert r.status_code == 422 and "meja" in r.json()["detail"].lower()
+    r = tolak(status="ngawur"); assert r.status_code == 422 and "Status tidak dikenal" in r.json()["detail"]
+    besok = hari_ini() + timedelta(days=1)
+    r = tolak(selesai=f"{besok}T09:07:00"); assert r.status_code == 422 and ("masa depan" in r.json()["detail"] or "tanggal tiket" in r.json()["detail"])
+    r = tolak(selesai=f"{t + timedelta(days=1)}T00:10:00"); assert r.status_code == 422 and "tanggal tiket" in r.json()["detail"]
+    assert _ubah(k, 999999999, **dasar).status_code == 404
+    # tidak ada yang berubah akibat penolakan
+    d = k.get(f"/api/data?tanggal={t}").json()["rows"][0]
+    assert d["dipanggil"] == "09:02:00" and d["selesai"] == "09:07:00"
+
+    # satu meja tidak boleh melayani dua nomor sekaligus
+    assert _ubah(k, ids[1], **{**dasar, "status": "aktif"}).status_code == 200            # 001 sedang dilayani di meja 1
+    r = _ubah(k, ids[3], status="aktif", meja=1, dibuat=f"{t}T09:20:00", dipanggil=f"{t}T09:25:00")
+    assert r.status_code == 422 and "sedang melayani nomor lain" in r.json()["detail"]
+    assert _ubah(k, ids[3], status="aktif", meja=2, dibuat=f"{t}T09:20:00", dipanggil=f"{t}T09:25:00").status_code == 200
+
+
+def test_kelola_hapus(admin):
+    from app import db
+    k = admin
+    t, ids = _seed_kemarin(k)
+    lain = db.q("SELECT count(*) AS n FROM queue_tiket WHERE tanggal<>%s", (t,), one=True)["n"]
+    assert k.post("/api/data/hapus", json={"ids": []}).status_code == 422
+    assert k.post("/api/data/hapus", json={"ids": ["x"]}).status_code == 422
+    assert k.post("/api/data/hapus", json={"ids": [999999999]}).json()["terhapus"] == 0
+    r = k.post("/api/data/hapus", json={"ids": [ids[1], ids[3]]})
+    assert r.status_code == 200 and r.json() == {"ok": True, "terhapus": 2}
+    assert [x["nomor"] for x in k.get(f"/api/data?tanggal={t}").json()["rows"]] == [2]
+    r = k.post("/api/data/hapus-tanggal", json={"tanggal": str(t)})
+    assert r.json() == {"ok": True, "terhapus": 1} and k.get(f"/api/data?tanggal={t}").json()["rows"] == []
+    assert k.post("/api/data/hapus-tanggal", json={"tanggal": "bukan"}).status_code == 422
+    assert db.q("SELECT count(*) AS n FROM queue_tiket WHERE tanggal<>%s", (t,), one=True)["n"] == lain   # tanggal lain utuh
+    assert k.srv.psql("select count(*) from queue_antrian_admisi").split()[2] == "1"                      # tabel lama utuh
+
+
+def test_kelola_hapus_hari_ini_nomor_mulai_dari_satu(admin):
+    k = admin
+    bersih(k)
+    assert [k.post("/api/tiket").json()["nomor"] for _ in range(3)] == [1, 2, 3]
+    hari = k.get("/api/data").json()
+    assert len(hari["rows"]) == 3 and [r["status"] for r in hari["rows"]] == ["menunggu"] * 3
+    assert k.post("/api/data/hapus-tanggal", json={"tanggal": hari["tanggal"]}).json()["terhapus"] == 3
+    assert k.get("/api/loket/1").json()["jumlah"] == 0
+    assert k.post("/api/tiket").json()["nomor"] == 1                    # penomoran hari ini mulai lagi dari 1
+    bersih(k)

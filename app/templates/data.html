@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% from "_komponen.html" import header with context %}
+{% block title %}Kelola Data · {{ p.nama_instansi }}{% endblock %}
+{% block content %}
+{{ header("bi-database-gear", "Kelola Data Antrian", "Kelola Data") }}
+
+<div class="alert alert-warning d-flex align-items-start gap-2 muncul" role="alert">
+  <i class="bi bi-exclamation-triangle-fill mt-1"></i>
+  <div>Perubahan di halaman ini langsung memengaruhi <b>laporan</b>. Data yang dihapus <b>tidak dapat dikembalikan</b>. Gunakan untuk membersihkan data uji coba atau mengoreksi kesalahan input.</div>
+</div>
+
+<section class="kartu muncul mb-3">
+  <div class="d-flex flex-wrap align-items-center gap-2">
+    <button type="button" class="btn btn-lembut btn-ikon" id="btn-prev" title="Hari sebelumnya"><i class="bi bi-chevron-left"></i></button>
+    <input type="date" class="form-control" style="width:auto" id="tgl" value="{{ tanggal_iso }}" max="{{ hari_ini }}" aria-label="Tanggal">
+    <button type="button" class="btn btn-lembut btn-ikon" id="btn-next" title="Hari berikutnya"><i class="bi bi-chevron-right"></i></button>
+    <a class="btn btn-lembut" href="/data">Hari ini</a>
+    <button type="button" class="btn btn-lembut btn-ikon" id="btn-muat" title="Muat ulang"><i class="bi bi-arrow-clockwise"></i></button>
+    <span class="ms-auto d-flex flex-wrap gap-2">
+      <button type="button" class="btn btn-bahaya" id="btn-hapus-pilih" disabled><i class="bi bi-trash3 me-1"></i>Hapus terpilih (<span id="n-pilih">0</span>)</button>
+      <button type="button" class="btn btn-hapus" id="btn-hapus-semua" disabled><i class="bi bi-trash3-fill me-1"></i>Hapus semua tanggal ini</button>
+    </span>
+  </div>
+  <div class="px-1 mt-3">
+    <div class="text-secondary small fw-bold text-uppercase" style="letter-spacing:.06em">Data antrian</div>
+    <div class="h5 fw-bold mb-0">{{ tanggal_teks }} <span class="text-secondary fw-normal fs-6" id="jumlah"></span></div>
+  </div>
+</section>
+
+<section class="kartu muncul">
+  <div class="table-responsive tabel-data">
+    <table class="tabel">
+      <thead><tr>
+        <th class="cb"><input class="form-check-input" type="checkbox" id="pilih-semua" aria-label="Pilih semua"></th>
+        <th>Nomor</th><th>Status</th><th>Meja</th><th>Ambil Nomor</th><th>Dipanggil</th><th>Selesai</th><th>Lama</th><th>Aksi</th>
+      </tr></thead>
+      <tbody id="isi"><tr><td colspan="9" class="text-secondary py-4">Memuat…</td></tr></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Edit -->
+<div class="modal fade" id="modalEdit" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content" style="border-radius:24px;border:0">
+    <div class="modal-header border-0 pb-0"><h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2" style="color:var(--brand)"></i>Edit Nomor <span id="e-nomor"></span></h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button></div>
+    <div class="modal-body">
+      <div class="alert alert-danger py-2 d-none" id="e-err" role="alert"></div>
+      <div class="mb-3"><label class="form-label fw-semibold" for="e-status">Status</label>
+        <select class="form-select" id="e-status">
+          <option value="menunggu">Menunggu (belum dipanggil)</option>
+          <option value="aktif">Sedang dilayani</option>
+          <option value="selesai">Selesai dilayani</option>
+          <option value="lewat">Tidak hadir</option>
+        </select></div>
+      <div class="mb-3 d-none" id="g-meja"><label class="form-label fw-semibold" for="e-meja">Meja layanan</label>
+        <select class="form-select" id="e-meja">{% for m in p.meja %}<option value="{{ m.no }}">{{ m.nama }}</option>{% endfor %}</select></div>
+      <div class="mb-3"><label class="form-label fw-semibold" for="e-dibuat">Waktu ambil nomor</label>
+        <input type="datetime-local" step="1" class="form-control" id="e-dibuat"></div>
+      <div class="mb-3 d-none" id="g-dipanggil"><label class="form-label fw-semibold" for="e-dipanggil">Waktu dipanggil &amp; mulai layanan</label>
+        <input type="datetime-local" step="1" class="form-control" id="e-dipanggil"></div>
+      <div class="mb-1 d-none" id="g-selesai"><label class="form-label fw-semibold" for="e-selesai">Waktu selesai</label>
+        <input type="datetime-local" step="1" class="form-control" id="e-selesai"></div>
+      <div class="form-text">Waktu dalam zona Jakarta dan harus berada pada tanggal {{ tanggal_teks }}. Urutan: ambil nomor ≤ dipanggil ≤ selesai.</div>
+    </div>
+    <div class="modal-footer border-0 pt-0">
+      <button type="button" class="btn btn-lembut" data-bs-dismiss="modal">Batal</button>
+      <button type="button" class="btn btn-brand" id="e-simpan"><i class="bi bi-check2-circle me-1"></i>Simpan perubahan</button>
+    </div>
+  </div></div>
+</div>
+
+<!-- Konfirmasi hapus -->
+<div class="modal fade" id="modalHapus" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content" style="border-radius:24px;border:0">
+    <div class="modal-header border-0 pb-0"><h5 class="modal-title fw-bold text-danger"><i class="bi bi-trash3 me-2"></i>Konfirmasi Hapus</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button></div>
+    <div class="modal-body">
+      <p id="h-teks" class="mb-2"></p>
+      <p class="text-danger fw-semibold small mb-0">Data yang dihapus tidak dapat dikembalikan.</p>
+      <div class="mt-3 d-none" id="h-ketik"><label class="form-label small fw-semibold" for="h-input">Ketik <b>HAPUS</b> untuk melanjutkan</label>
+        <input type="text" class="form-control" id="h-input" autocomplete="off"></div>
+    </div>
+    <div class="modal-footer border-0 pt-0">
+      <button type="button" class="btn btn-lembut" data-bs-dismiss="modal">Batal</button>
+      <button type="button" class="btn btn-hapus" id="h-ok"><i class="bi bi-trash3 me-1"></i>Ya, hapus</button>
+    </div>
+  </div></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TGL = {{ tanggal_iso|tojson }}, HARI_INI = {{ hari_ini|tojson }}, MEJA = {{ p.meja|tojson }};
+const $ = id => document.getElementById(id);
+const JSON_POST = body => ({method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+const LABEL = {
+  menunggu: ['l-menunggu', 'bi-hourglass-split', 'Menunggu'], aktif: ['l-aktif', 'bi-broadcast', 'Dilayani'],
+  selesai: ['l-selesai', 'bi-check2-circle', 'Selesai'], lewat: ['l-lewat', 'bi-person-x', 'Tidak hadir']
+};
+let rows = [], dipilih = new Set(), editId = null, aksiHapus = null;
+const mEdit = new bootstrap.Modal($('modalEdit')), mHapus = new bootstrap.Modal($('modalHapus'));
+
+function geser(n) {
+  const d = new Date(TGL + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n);
+  location.href = '/data?tanggal=' + d.toISOString().slice(0, 10);
+}
+$('btn-prev').onclick = () => geser(-1);
+$('btn-next').onclick = () => geser(1);
+$('btn-next').disabled = TGL >= HARI_INI;
+$('tgl').onchange = e => { if (e.target.value) location.href = '/data?tanggal=' + e.target.value; };
+$('btn-muat').onclick = () => muat();
+
+function gambar() {
+  $('jumlah').textContent = rows.length ? '· ' + rows.length + ' antrian' : '';
+  $('isi').innerHTML = rows.length ? rows.map(r => {
+    const [kls, ik, lbl] = LABEL[r.status];
+    return `<tr class="${dipilih.has(r.id) ? 'aktif' : ''}">
+      <td class="cb"><input class="form-check-input" type="checkbox" data-pilih="${r.id}" ${dipilih.has(r.id) ? 'checked' : ''} aria-label="Pilih nomor ${r.nomor_txt}"></td>
+      <td class="no">${r.nomor_txt}</td>
+      <td><span class="lencana ${kls}"><i class="bi ${ik}"></i> ${lbl}</span></td>
+      <td>${esc(r.meja_nama)}</td><td>${r.dibuat}</td><td>${r.dipanggil}</td><td>${r.selesai}</td><td class="timer">${r.durasi}</td>
+      <td><div class="aksi-sel">
+        <button class="btn btn-lembut btn-ikon" title="Edit" data-edit="${r.id}"><i class="bi bi-pencil-square"></i></button>
+        <button class="btn btn-bahaya btn-ikon" title="Hapus" data-hapus="${r.id}"><i class="bi bi-trash3"></i></button></div></td></tr>`;
+  }).join('') : '<tr><td colspan="9" class="text-secondary py-4">Tidak ada data antrian pada tanggal ini.</td></tr>';
+  $('n-pilih').textContent = dipilih.size;
+  $('btn-hapus-pilih').disabled = dipilih.size === 0;
+  $('btn-hapus-semua').disabled = rows.length === 0;
+  $('pilih-semua').checked = rows.length > 0 && dipilih.size === rows.length;
+}
+
+async function muat() {
+  try {
+    const d = await api('/api/data?tanggal=' + TGL);
+    rows = d.rows;
+    const ada = new Set(rows.map(r => r.id));
+    dipilih = new Set([...dipilih].filter(i => ada.has(i)));
+    gambar();
+  } catch (e) { if (e.message !== 'login') toast(e.message, 'gagal'); }
+}
+
+$('pilih-semua').onchange = e => { dipilih = e.target.checked ? new Set(rows.map(r => r.id)) : new Set(); gambar(); };
+$('isi').addEventListener('change', e => {
+  const c = e.target.closest('[data-pilih]'); if (!c) return;
+  const id = +c.dataset.pilih; c.checked ? dipilih.add(id) : dipilih.delete(id); gambar();
+});
+$('isi').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.edit) bukaEdit(+b.dataset.edit);
+  else if (b.dataset.hapus) {
+    const r = rows.find(x => x.id === +b.dataset.hapus);
+    konfirmasi(`Hapus nomor antrian <b>${r.nomor_txt}</b> (${LABEL[r.status][2]})?`, false, () => hapusIds([r.id]));
+  }
+});
+$('btn-hapus-pilih').onclick = () => konfirmasi(`Hapus <b>${dipilih.size}</b> data antrian yang dipilih?`, false, () => hapusIds([...dipilih]));
+$('btn-hapus-semua').onclick = () => konfirmasi(`Hapus <b>SEMUA ${rows.length}</b> data antrian pada tanggal <b>${TGL}</b>? Nomor antrian tanggal ini akan mulai lagi dari 001.`, true,
+  async () => { const r = await api('/api/data/hapus-tanggal', JSON_POST({tanggal: TGL})); return r.terhapus; });
+
+/* ---------- hapus ---------- */
+function konfirmasi(html, ketik, fn) {
+  $('h-teks').innerHTML = html; $('h-input').value = '';
+  $('h-ketik').classList.toggle('d-none', !ketik);
+  $('h-ok').disabled = ketik; aksiHapus = fn; mHapus.show();
+}
+$('h-input').oninput = e => { $('h-ok').disabled = e.target.value.trim().toUpperCase() !== 'HAPUS'; };
+async function hapusIds(ids) { return (await api('/api/data/hapus', JSON_POST({ids}))).terhapus; }
+$('h-ok').onclick = async () => {
+  $('h-ok').disabled = true;
+  try {
+    const n = await aksiHapus();
+    mHapus.hide(); dipilih = new Set(); toast(n + ' data dihapus', 'ok');
+  } catch (e) { if (e.message !== 'login') { mHapus.hide(); toast(e.message, 'gagal'); } }
+  muat();
+};
+
+/* ---------- edit ---------- */
+function aturForm() {
+  const st = $('e-status').value, panggil = st !== 'menunggu', selesai = st === 'selesai' || st === 'lewat';
+  $('g-meja').classList.toggle('d-none', !panggil);
+  $('g-dipanggil').classList.toggle('d-none', !panggil);
+  $('g-selesai').classList.toggle('d-none', !selesai);
+  if (panggil && !$('e-dipanggil').value) $('e-dipanggil').value = $('e-dibuat').value;
+  if (selesai && !$('e-selesai').value) $('e-selesai').value = $('e-dipanggil').value;
+}
+$('e-status').onchange = aturForm;
+
+function bukaEdit(id) {
+  const r = rows.find(x => x.id === id); if (!r) return;
+  editId = id; $('e-err').classList.add('d-none');
+  $('e-nomor').textContent = r.nomor_txt;
+  for (const k of ['e-dibuat', 'e-dipanggil', 'e-selesai']) { $(k).min = TGL + 'T00:00:00'; $(k).max = TGL + 'T23:59:59'; }
+  $('e-status').value = r.status;
+  $('e-meja').value = r.meja || (MEJA[0] && MEJA[0].no);
+  $('e-dibuat').value = r.dibuat_iso; $('e-dipanggil').value = r.dipanggil_iso; $('e-selesai').value = r.selesai_iso;
+  aturForm(); mEdit.show();
+}
+
+$('e-simpan').onclick = async () => {
+  const b = $('e-simpan'); b.disabled = true; $('e-err').classList.add('d-none');
+  try {
+    await api(`/api/data/${editId}/ubah`, JSON_POST({
+      status: $('e-status').value, meja: +$('e-meja').value || null,
+      dibuat: $('e-dibuat').value, dipanggil: $('e-dipanggil').value, selesai: $('e-selesai').value}));
+    mEdit.hide(); toast('Perubahan disimpan', 'ok'); muat();
+  } catch (e) {
+    if (e.message !== 'login') { $('e-err').textContent = e.message; $('e-err').classList.remove('d-none'); }
+  } finally { b.disabled = false; }
+};
+
+muat();
+</script>
+{% endblock %}

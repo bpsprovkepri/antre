@@ -144,3 +144,11 @@ background:linear-gradient(160deg,#fff,var(--brand-soft))}
 .grafik.rapat{gap:3px}.grafik.rapat .h{font-size:.62rem;writing-mode:vertical-rl;transform:rotate(180deg)}.grafik.rapat .n{font-size:.62rem}
 .rincian{max-height:360px;overflow:auto}.rincian thead th{position:sticky;top:0;z-index:1}
 .tabel td.text-start{text-align:left}
+
+/* kelola data */
+.tabel-data{max-height:62vh;overflow:auto}
+.tabel-data thead th{position:sticky;top:0;z-index:1}
+.tabel th.cb,.tabel td.cb{width:44px;padding-left:12px;padding-right:4px}
+.btn-bahaya{background:#fee2e2;color:#b91c1c;border:0}.btn-bahaya:hover{background:#fecaca;color:#991b1b}
+.btn-hapus{background:linear-gradient(135deg,#ef4444,#b91c1c);color:#fff;border:0;box-shadow:0 8px 18px -8px #b91c1c}.btn-hapus:hover{color:#fff;filter:brightness(1.06)}
+.form-check-input:checked{background-color:var(--brand);border-color:var(--brand)}

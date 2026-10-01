@@ -30,6 +30,12 @@
     <p>Lama layanan dan waktu tunggu: harian, bulanan, tahunan, atau rentang tanggal. Bisa diunduh ke Excel.</p>
     <span class="go">Tampilkan <i class="bi bi-arrow-right"></i></span></a></div>
 
+  <div class="col muncul"><a class="kartu menu-kartu" href="/data">
+    {% if not admin %}<span class="kunci"><i class="bi bi-lock-fill"></i> Login</span>{% endif %}
+    <div class="ikon ikon-merah"><i class="bi bi-database-gear"></i></div><h3>Kelola Data</h3>
+    <p>Edit waktu atau status antrian yang salah input, dan hapus data uji coba.</p>
+    <span class="go">Tampilkan <i class="bi bi-arrow-right"></i></span></a></div>
+
   <div class="col muncul"><a class="kartu menu-kartu" href="/pengaturan">
     {% if not admin %}<span class="kunci"><i class="bi bi-lock-fill"></i> Login</span>{% endif %}
     <div class="ikon"><i class="bi bi-gear"></i></div><h3>Setting Antrian</h3>
