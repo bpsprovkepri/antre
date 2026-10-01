@@ -3,7 +3,7 @@ import os
 import secrets
 import time
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date
 from urllib.parse import quote
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Request
@@ -12,8 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import antrian, config, db, pengaturan, printer, suara
-from .util import hari_ini, tanggal_id
+from . import antrian, config, db, laporan as lap, pengaturan, printer, suara
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 
@@ -149,20 +148,31 @@ def loket(request: Request, meja: int):
     return render(request, "loket.html", meja=meja, meja_nama=_cek_meja(meja))
 
 
+def _periode(jenis, tanggal, bulan, tahun, awal, akhir):
+    """Periode dari query string; bila tidak valid kembali ke laporan harian hari ini + pesan kesalahan."""
+    try:
+        return lap.periode(jenis, tanggal, bulan, tahun, awal, akhir), None
+    except lap.PeriodeError as e:
+        return lap.periode("harian"), str(e)
+
+
 @app.get("/laporan", response_class=HTMLResponse, dependencies=[Depends(admin_halaman)])
-def laporan(request: Request, tanggal: date | None = None):
-    d = tanggal or hari_ini()
-    return render(request, "laporan.html", tanggal=d.isoformat(), tanggal_teks=tanggal_id(d),
-                  kemarin=(d - timedelta(days=1)).isoformat(), besok=(d + timedelta(days=1)).isoformat(),
-                  hari_ini_iso=hari_ini().isoformat(), **antrian.laporan_data(d, pengaturan.get()))
+def laporan(request: Request, jenis: str = "harian", tanggal: date | None = None, bulan: int | None = None,
+            tahun: int | None = None, awal: date | None = None, akhir: date | None = None):
+    per, err = _periode(jenis, tanggal, bulan, tahun, awal, akhir)
+    return render(request, "laporan.html", 422 if err else 200, per=per, err=err, nav=lap.navigasi(per),
+                  tahun_opsi=lap.opsi_tahun(per), nama_bulan=lap.BULAN, **lap.data(per, pengaturan.get()))
 
 
 @app.get("/laporan.xlsx", dependencies=[Depends(admin_halaman)])
-def laporan_xlsx(tanggal: date | None = None):
-    d = tanggal or hari_ini()
-    return Response(antrian.laporan_xlsx(d, pengaturan.get()),
+def laporan_xlsx(jenis: str = "harian", tanggal: date | None = None, bulan: int | None = None,
+                 tahun: int | None = None, awal: date | None = None, akhir: date | None = None):
+    per, err = _periode(jenis, tanggal, bulan, tahun, awal, akhir)
+    if err:
+        raise HTTPException(422, err)
+    return Response(lap.xlsx(per, pengaturan.get()),
                     media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={"Content-Disposition": f'attachment; filename="laporan-antrian-{d}.xlsx"'})
+                    headers={"Content-Disposition": f'attachment; filename="laporan-antrian-{per["kode"]}.xlsx"'})
 
 
 @app.get("/pengaturan", response_class=HTMLResponse, dependencies=[Depends(admin_halaman)])

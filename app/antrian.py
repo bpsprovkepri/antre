@@ -1,15 +1,10 @@
 """Logika antrian: ambil nomor, panggil (+mulai), selesai, monitor, laporan."""
-import io
 from datetime import datetime, timezone
 
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
 
 from . import pengaturan
-from .config import TZ
 from .db import pool, q
-from .util import dur, hms, hari_ini, mmss, p3, teks_panggil
+from .util import dur, hari_ini, hms, mmss, p3, teks_panggil
 
 # Setiap aksi = satu UPDATE atomik; aturan urutan dijaga di database, bukan di browser.
 # "panggil" = memanggil sekaligus memulai layanan (dan bisa diulang untuk panggil ulang).
@@ -109,85 +104,3 @@ def monitor(p: dict) -> dict:
         out["last"] = {"kunci": f"{last['id']}:{last['panggil_n']}", "nomor": last["nomor"], "nomor_txt": p3(last["nomor"]),
                        "meja": last["meja"], "meja_nama": nama, "teks": teks_panggil(last["nomor"], nama)}
     return out
-
-
-# ---------- laporan ----------
-def laporan_data(d, p: dict) -> dict:
-    rows = q("SELECT * FROM queue_tiket WHERE tanggal=%s ORDER BY nomor", (d,))
-    lay, tgg, per_jam, per_meja = [], [], {}, {}
-    for r in rows:
-        r["tunggu"] = dur(r["dibuat_at"], r["dipanggil_at"])
-        r["layanan"] = dur(r["mulai_at"], r["selesai_at"]) if (r["selesai_at"] and not r["lewat"]) else None
-        r["status"] = ("menunggu" if not r["dipanggil_at"] else "berjalan" if not r["selesai_at"]
-                       else "tidak hadir" if r["lewat"] else "selesai")
-        if r["tunggu"] is not None:
-            tgg.append(r["tunggu"])
-        if r["layanan"] is not None:
-            lay.append(r["layanan"])
-        h = r["dibuat_at"].astimezone(TZ).hour
-        per_jam[h] = per_jam.get(h, 0) + 1
-        if r["meja"]:
-            m = per_meja.setdefault(r["meja"], {"n": 0, "lay": [], "lewat": 0})
-            m["n"] += 1
-            m["lewat"] += 1 if r["lewat"] else 0
-            if r["layanan"] is not None:
-                m["lay"].append(r["layanan"])
-
-    def rata(x):
-        return mmss(sum(x) / len(x)) if x else "-"
-
-    ring = {"total": len(rows), "selesai": len(lay), "lewat": sum(1 for r in rows if r["lewat"]),
-            "menunggu": sum(1 for r in rows if r["status"] == "menunggu"),
-            "berjalan": sum(1 for r in rows if r["status"] == "berjalan"),
-            "rata_layanan": rata(lay), "maks_layanan": mmss(max(lay)) if lay else "-",
-            "min_layanan": mmss(min(lay)) if lay else "-", "rata_tunggu": rata(tgg),
-            "maks_tunggu": mmss(max(tgg)) if tgg else "-"}
-    jam = []
-    if per_jam:
-        mx = max(per_jam.values())
-        for h in range(min(7, min(per_jam)), max(16, max(per_jam)) + 1):
-            jam.append({"h": f"{h:02d}", "n": per_jam.get(h, 0), "pct": round(per_jam.get(h, 0) * 100 / mx)})
-    meja = [{"nama": pengaturan.nama_meja(p, no) or f"Meja {no}", "n": v["n"], "selesai": len(v["lay"]),
-             "lewat": v["lewat"], "rata": rata(v["lay"]), "maks": mmss(max(v["lay"])) if v["lay"] else "-"}
-            for no, v in sorted(per_meja.items())]
-    for r in rows:
-        r.update(nomor_txt=p3(r["nomor"]), ambil=hms(r["dibuat_at"]), panggil=hms(r["dipanggil_at"]),
-                 selesai_jam=hms(r["selesai_at"]), tunggu_txt=mmss(r["tunggu"]), layanan_txt=mmss(r["layanan"]),
-                 meja_nama=(pengaturan.nama_meja(p, r["meja"]) or f"Meja {r['meja']}") if r["meja"] else "-")
-    return {"ring": ring, "jam": jam, "meja": meja, "rows": rows}
-
-
-def laporan_xlsx(d, p: dict) -> bytes:
-    data = laporan_data(d, p)
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Detail"
-    kepala = ["Nomor", "Meja", "Ambil", "Panggil & Mulai", "Selesai", "Tunggu (mm:ss)", "Layanan (mm:ss)",
-              "Tunggu (detik)", "Layanan (detik)", "Status"]
-    ws.append(kepala)
-    for r in data["rows"]:
-        ws.append([r["nomor_txt"], r["meja_nama"], r["ambil"], r["panggil"], r["selesai_jam"], r["tunggu_txt"],
-                   r["layanan_txt"], r["tunggu"], r["layanan"], r["status"]])
-    r2 = wb.create_sheet("Ringkasan")
-    g = data["ring"]
-    for baris in (["Tanggal", str(d)], ["Total antrian", g["total"]], ["Selesai dilayani", g["selesai"]],
-                  ["Tidak hadir", g["lewat"]], ["Rata-rata layanan", g["rata_layanan"]],
-                  ["Layanan terlama", g["maks_layanan"]], ["Layanan tercepat", g["min_layanan"]],
-                  ["Rata-rata tunggu", g["rata_tunggu"]], [], ["Meja", "Jumlah", "Selesai", "Tidak hadir", "Rata-rata layanan", "Terlama"]):
-        r2.append(baris)
-    for m in data["meja"]:
-        r2.append([m["nama"], m["n"], m["selesai"], m["lewat"], m["rata"], m["maks"]])
-    for sh in (ws, r2):
-        for c in sh[1]:
-            c.font = Font(bold=True, color="FFFFFF")
-            c.fill = PatternFill("solid", fgColor="0A6B38")
-            c.alignment = Alignment(horizontal="center")
-        for i in range(1, 11):
-            sh.column_dimensions[get_column_letter(i)].width = 20
-    r2.column_dimensions["A"].width = 24
-    for c in r2[1]:
-        c.fill = PatternFill(fill_type=None)
-        c.font = Font(bold=True)
-    buf = io.BytesIO()
-    wb.save(buf)
-    return buf.getvalue()

@@ -10,7 +10,7 @@ Stack: Python 3.12 · FastAPI · PostgreSQL · Bootstrap 5 (disalin lokal) · Do
 | `/kiosk` | Pengunjung ambil nomor (tanpa tombol cetak) | – |
 | `/monitor` | Layar TV PST: video YouTube berulang, nomor sekarang, selanjutnya + meja, sisa antrian, suara panggilan | – |
 | `/loket/{n}` | Petugas meja: **Panggil** (sekaligus mulai) → **Selesai** (+ panggil ulang, tidak hadir) | ya |
-| `/laporan` | Lama layanan, waktu tunggu, grafik per jam, ringkasan per meja, unduh Excel | ya |
+| `/laporan` | Laporan **harian**, **bulanan** (pilih bulan & tahun), **tahunan** (pilih tahun), **rentang tanggal** (awal–akhir, maks 366 hari); grafik, ringkasan per meja, unduh Excel | ya |
 | `/pengaturan` | Instansi, footer, meja, logo & warna, suara, printer | ya |
 
 Setiap sub menu punya tombol/breadcrumb kembali ke Beranda.
@@ -20,6 +20,13 @@ Setiap sub menu punya tombol/breadcrumb kembali ke Beranda.
 - Nomor berikutnya nonaktif selama meja itu belum menekan **Selesai**; nomor tidak bisa dilompati (dijaga di query SQL, `app/antrian.py`).
 - **Tidak hadir**: menutup nomor tanpa dihitung dalam rata-rata lama layanan.
 - Lama layanan = selesai − mulai. Waktu tunggu = dipanggil − diambil. Zona waktu WIB.
+
+## Laporan
+Semua jenis laporan (dan unduhan Excel) wajib login. Isi: total antrian, selesai dilayani, tidak hadir, rata-rata/terlama/tercepat lama layanan,
+rata-rata waktu tunggu, grafik jumlah & lama layanan (per jam untuk harian, per hari untuk bulanan/rentang ≤ 62 hari, per bulan untuk tahunan/rentang lebih panjang),
+ringkasan per meja, dan detail per antrian (di layar jika ≤ 300 baris; selengkapnya di Excel).
+Excel berisi lembar **Ringkasan**, **Rincian** (per jam/hari/bulan), dan **Detail** (semua antrian, bisa difilter). Nomor yang tidak dipanggil atau tidak ditutup
+pada hari yang sudah lewat tercatat sebagai "tidak dilayani / belum ditutup" dan tidak ikut rata-rata lama layanan.
 
 ## Suara panggilan
 Bunyi "ting-tung" lalu ucapan ("Nomor antrian, dua, silakan menuju, meja satu"). Diputar di **halaman petugas** saat klik Panggil dan di **layar monitor**
@@ -47,7 +54,8 @@ Saat pertama kali jalan, pengaturan awal (nama, alamat, YouTube, warna, daftar m
 ## Struktur
 ```
 app/main.py         route halaman & API      app/pengaturan.py  pengaturan, logo, YouTube
-app/antrian.py      logika antrian & laporan app/printer.py      cetak ESC/POS
+app/antrian.py      logika antrian           app/laporan.py     laporan & Excel
+app/printer.py      cetak ESC/POS
 app/suara.py        suara server (espeak-ng) app/db.py           koneksi & skema
 app/templates/      HTML (Jinja)             app/static/        CSS, JS, Bootstrap lokal
 tests/              uji otomatis (pytest)    scripts/schema.sql SQL manual (opsional)

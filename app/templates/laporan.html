@@ -1,22 +1,59 @@
 {% extends "base.html" %}
 {% from "_komponen.html" import header with context %}
-{% block title %}Laporan Layanan · {{ p.nama_instansi }}{% endblock %}
+{% block title %}{{ per.judul }} · {{ p.nama_instansi }}{% endblock %}
 {% block content %}
 {{ header("bi-bar-chart-line-fill", "Laporan Lama Layanan", "Laporan") }}
 
+{% if err %}<div class="alert alert-danger d-flex align-items-center gap-2 muncul" role="alert"><i class="bi bi-exclamation-triangle-fill"></i><div>{{ err }}. Menampilkan laporan hari ini.</div></div>{% endif %}
+
 <section class="kartu muncul mb-3 noprint">
-  <form method="get" class="d-flex flex-wrap align-items-center gap-2">
-    <a class="btn btn-lembut btn-ikon" href="/laporan?tanggal={{ kemarin }}" title="Hari sebelumnya"><i class="bi bi-chevron-left"></i></a>
-    <input type="date" class="form-control" style="width:auto" name="tanggal" value="{{ tanggal }}" max="{{ hari_ini_iso }}" onchange="this.form.submit()">
-    <a class="btn btn-lembut btn-ikon" href="/laporan?tanggal={{ besok }}" title="Hari berikutnya"><i class="bi bi-chevron-right"></i></a>
-    <a class="btn btn-lembut" href="/laporan">Hari ini</a>
-    <span class="fw-semibold text-secondary ms-1">{{ tanggal_teks }}</span>
+  <ul class="nav nav-pills tab-laporan mb-3">
+    {% for k, t, ic in (("harian","Harian","bi-calendar-day"),("bulanan","Bulanan","bi-calendar-month"),("tahunan","Tahunan","bi-calendar3"),("rentang","Rentang Waktu","bi-calendar-range")) %}
+    <li class="nav-item"><a class="nav-link {{ 'active' if per.jenis == k }}" href="/laporan?jenis={{ k }}"><i class="bi {{ ic }} me-1"></i>{{ t }}</a></li>
+    {% endfor %}
+  </ul>
+
+  <form method="get" action="/laporan" class="d-flex flex-wrap align-items-center gap-2">
+    <input type="hidden" name="jenis" value="{{ per.jenis }}">
+    {% if nav.prev %}<a class="btn btn-lembut btn-ikon" href="/laporan?{{ nav.prev }}" title="Sebelumnya"><i class="bi bi-chevron-left"></i></a>{% endif %}
+
+    {% if per.jenis == 'harian' %}
+      <input type="date" class="form-control" style="width:auto" name="tanggal" value="{{ per.tanggal }}" onchange="this.form.submit()" aria-label="Tanggal">
+    {% elif per.jenis == 'bulanan' %}
+      <select class="form-select" style="width:auto" name="bulan" onchange="this.form.submit()" aria-label="Bulan">
+        {% for i in range(1, 13) %}<option value="{{ i }}" {{ 'selected' if i == per.bulan }}>{{ nama_bulan[i] }}</option>{% endfor %}
+      </select>
+      <select class="form-select" style="width:auto" name="tahun" onchange="this.form.submit()" aria-label="Tahun">
+        {% for t in tahun_opsi %}<option value="{{ t }}" {{ 'selected' if t == per.tahun }}>{{ t }}</option>{% endfor %}
+      </select>
+    {% elif per.jenis == 'tahunan' %}
+      <select class="form-select" style="width:auto" name="tahun" onchange="this.form.submit()" aria-label="Tahun">
+        {% for t in tahun_opsi %}<option value="{{ t }}" {{ 'selected' if t == per.tahun }}>{{ t }}</option>{% endfor %}
+      </select>
+    {% else %}
+      <label class="text-secondary small fw-semibold mb-0">Dari</label>
+      <input type="date" class="form-control" style="width:auto" name="awal" value="{{ per.awal_iso }}" required>
+      <label class="text-secondary small fw-semibold mb-0">sampai</label>
+      <input type="date" class="form-control" style="width:auto" name="akhir" value="{{ per.akhir_iso }}" required>
+      <button class="btn btn-brand"><i class="bi bi-search me-1"></i>Tampilkan</button>
+    {% endif %}
+
+    {% if nav.next %}<a class="btn btn-lembut btn-ikon" href="/laporan?{{ nav.next }}" title="Berikutnya"><i class="bi bi-chevron-right"></i></a>{% endif %}
+    {% if nav.kini %}<a class="btn btn-lembut" href="/laporan?{{ nav.kini }}">{{ {'harian':'Hari ini','bulanan':'Bulan ini','tahunan':'Tahun ini'}[per.jenis] }}</a>{% endif %}
+
     <span class="ms-auto d-flex gap-2">
-      <a class="btn btn-brand" href="/laporan.xlsx?tanggal={{ tanggal }}"><i class="bi bi-file-earmark-excel me-1"></i>Unduh Excel</a>
+      <a class="btn btn-brand" href="/laporan.xlsx?{{ per.qs }}"><i class="bi bi-file-earmark-excel me-1"></i>Unduh Excel</a>
       <button type="button" class="btn btn-lembut" onclick="print()"><i class="bi bi-printer me-1"></i>Cetak halaman</button>
     </span>
   </form>
+  {% if nav.preset %}<div class="d-flex flex-wrap gap-2 mt-3"><span class="text-secondary small fw-semibold align-self-center">Pintasan:</span>
+    {% for t, qs in nav.preset %}<a class="chip text-decoration-none mt-0" href="/laporan?{{ qs }}">{{ t }}</a>{% endfor %}</div>{% endif %}
 </section>
+
+<div class="px-1 mb-3 muncul">
+  <div class="text-secondary small fw-bold text-uppercase" style="letter-spacing:.06em">{{ per.judul }}</div>
+  <div class="h4 fw-bold mb-0">{{ per.sub }}</div>
+</div>
 
 <div class="row g-3 mb-3">
   {% set kpi = [("bi-people","ikon-kuning","v-kuning",ring.total,"Total antrian"),("bi-person-check","ikon-hijau","v-hijau",ring.selesai,"Selesai dilayani"),
@@ -26,25 +63,47 @@
   <div class="col-6 col-lg-4 muncul"><div class="kartu stat"><div class="ikon {{ cls }}"><i class="bi {{ ic }}"></i></div><div><div class="v {{ vc }}">{{ val }}</div><div class="l">{{ lab }}</div></div></div></div>
   {% endfor %}
 </div>
-<p class="text-secondary small mb-3 px-1">Format waktu mm:ss. Lama layanan dihitung dari saat dipanggil (mulai) sampai selesai; nomor tidak hadir tidak dihitung. Menunggu: {{ ring.menunggu }} · Sedang berjalan: {{ ring.berjalan }} · Layanan tercepat: {{ ring.min_layanan }}.</p>
+<p class="text-secondary small mb-3 px-1">
+  Format waktu mm:ss. Lama layanan = saat dipanggil (mulai) sampai selesai; nomor tidak hadir tidak dihitung. Layanan tercepat: {{ ring.min_layanan }}.
+  {% if per.hari > 1 %}Hari beroperasi: {{ ring.hari_aktif }} · Rata-rata {{ ring.rata_per_hari }} antrian/hari.{% endif %}
+  {% if ring.menunggu or ring.berjalan %}Menunggu: {{ ring.menunggu }} · Sedang berjalan: {{ ring.berjalan }}.{% endif %}
+  {% if ring.tdk_dilayani %}Tidak dilayani / belum ditutup: {{ ring.tdk_dilayani }}.{% endif %}
+</p>
 
 <div class="row g-3 mb-3">
-  <div class="col-lg-7 muncul"><section class="kartu h-100"><div class="jd"><i class="bi bi-graph-up"></i> Antrian per jam</div>
-    {% if jam %}<div class="grafik">{% for j in jam %}<div class="kol"><span class="n">{{ j.n if j.n else '' }}</span><div class="bar" style="height:{{ j.pct if j.n else 0 }}%"></div><span class="h">{{ j.h }}</span></div>{% endfor %}</div>
-    {% else %}<p class="text-secondary mb-0">Belum ada data.</p>{% endif %}</section></div>
+  <div class="col-lg-6 muncul"><section class="kartu h-100"><div class="jd"><i class="bi bi-graph-up"></i> Jumlah antrian {{ judul_seri }}</div>
+    {% if ring.total %}<div class="grafik {{ 'rapat' if seri|length > 16 }}">{% for s in seri %}<div class="kol" title="{{ s.label_panjang }}: {{ s.n }} antrian"><span class="n">{{ s.n if s.n else '' }}</span><div class="bar" style="height:{{ s.pct if s.n else 0 }}%"></div><span class="h">{{ s.label }}</span></div>{% endfor %}</div>
+    {% else %}<p class="text-secondary mb-0">Belum ada data pada periode ini.</p>{% endif %}</section></div>
+  <div class="col-lg-6 muncul"><section class="kartu h-100"><div class="jd"><i class="bi bi-stopwatch"></i> Rata-rata lama layanan {{ judul_seri }} <span class="text-secondary fw-normal">(mm:ss)</span></div>
+    {% if ring.selesai %}<div class="grafik biru {{ 'rapat' if seri|length > 16 }}">{% for s in seri %}<div class="kol" title="{{ s.label_panjang }}: {{ s.rata }}"><span class="n">{{ s.rata if s.selesai and seri|length <= 16 else '' }}</span><div class="bar" style="height:{{ s.pct_lay if s.selesai else 0 }}%"></div><span class="h">{{ s.label }}</span></div>{% endfor %}</div>
+    {% else %}<p class="text-secondary mb-0">Belum ada layanan selesai pada periode ini.</p>{% endif %}</section></div>
+</div>
+
+<div class="row g-3 mb-3">
   <div class="col-lg-5 muncul"><section class="kartu h-100"><div class="jd"><i class="bi bi-person-workspace"></i> Ringkasan per meja</div>
     {% if meja %}<div class="table-responsive"><table class="tabel"><thead><tr><th>Meja</th><th>Dilayani</th><th>Rata-rata</th><th>Terlama</th></tr></thead><tbody>
       {% for m in meja %}<tr><td class="fw-semibold">{{ m.nama }}</td><td>{{ m.selesai }}{% if m.lewat %} <small class="text-danger">(+{{ m.lewat }} tdk hadir)</small>{% endif %}</td><td class="num">{{ m.rata }}</td><td class="num">{{ m.maks }}</td></tr>{% endfor %}
     </tbody></table></div>{% else %}<p class="text-secondary mb-0">Belum ada data.</p>{% endif %}</section></div>
+  {% if gran != 'jam' %}
+  <div class="col-lg-7 muncul"><section class="kartu h-100"><div class="jd"><i class="bi bi-table"></i> Rincian {{ judul_seri }}</div>
+    <div class="table-responsive rincian"><table class="tabel"><thead><tr><th>{{ 'Tanggal' if gran == 'hari' else 'Bulan' }}</th><th>Antrian</th><th>Dilayani</th><th>Tdk hadir</th><th>Rata-rata</th><th>Terlama</th><th>Tunggu</th></tr></thead><tbody>
+      {% for s in seri %}<tr class="{{ 'text-secondary' if not s.n }}"><td class="text-start fw-semibold">{{ s.label_panjang }}</td><td>{{ s.n }}</td><td>{{ s.selesai }}</td><td>{{ s.lewat }}</td><td class="num">{{ s.rata }}</td><td class="num">{{ s.maks }}</td><td class="num">{{ s.rata_tunggu }}</td></tr>{% endfor %}
+    </tbody></table></div></section></div>
+  {% endif %}
 </div>
 
 <section class="kartu muncul"><div class="jd"><i class="bi bi-list-ul"></i> Detail antrian</div>
+  {% if tampil_detail %}
   <div class="table-responsive"><table class="tabel">
-    <thead><tr><th>Nomor</th><th>Meja</th><th>Ambil</th><th>Panggil &amp; Mulai</th><th>Selesai</th><th>Tunggu</th><th>Layanan</th><th>Status</th></tr></thead>
-    <tbody>{% for x in rows %}<tr><td class="no">{{ x.nomor_txt }}</td><td>{{ x.meja_nama }}</td><td class="num">{{ x.ambil }}</td><td class="num">{{ x.panggil }}</td><td class="num">{{ x.selesai_jam }}</td>
+    <thead><tr>{% if per.jenis != 'harian' %}<th>Tanggal</th>{% endif %}<th>Nomor</th><th>Meja</th><th>Ambil</th><th>Panggil &amp; Mulai</th><th>Selesai</th><th>Tunggu</th><th>Layanan</th><th>Status</th></tr></thead>
+    <tbody>{% for x in rows %}<tr>{% if per.jenis != 'harian' %}<td class="num">{{ x.tgl_txt }}</td>{% endif %}<td class="no">{{ x.nomor_txt }}</td><td>{{ x.meja_nama }}</td><td class="num">{{ x.ambil }}</td><td class="num">{{ x.panggil }}</td><td class="num">{{ x.selesai_jam }}</td>
       <td class="num">{{ x.tunggu_txt }}</td><td class="num fw-semibold">{{ x.layanan_txt }}</td>
-      <td><span class="lencana {{ {'menunggu':'l-menunggu','berjalan':'l-aktif','selesai':'l-selesai','tidak hadir':'l-lewat'}[x.status] }}">{{ x.status|capitalize }}</span></td></tr>
-    {% else %}<tr><td colspan="8" class="text-secondary py-4">Belum ada data pada tanggal ini</td></tr>{% endfor %}</tbody>
+      <td><span class="lencana {{ {'menunggu':'l-menunggu','berjalan':'l-aktif','selesai':'l-selesai','tidak hadir':'l-lewat','tidak dilayani':'l-menunggu','belum ditutup':'l-menunggu'}[x.status] }}">{{ x.status|capitalize }}</span></td></tr>
+    {% else %}<tr><td colspan="9" class="text-secondary py-4">Belum ada data pada periode ini</td></tr>{% endfor %}</tbody>
   </table></div>
+  {% else %}
+  <p class="mb-0 text-secondary"><i class="bi bi-info-circle me-1"></i>Periode ini berisi {{ ring.total }} antrian, terlalu banyak untuk ditampilkan di layar. Detail lengkap per antrian ada di file Excel (lembar <b>Detail</b>).
+    <a class="btn btn-brand btn-sm ms-2" href="/laporan.xlsx?{{ per.qs }}"><i class="bi bi-file-earmark-excel me-1"></i>Unduh Excel</a></p>
+  {% endif %}
 </section>
 {% endblock %}

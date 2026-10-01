@@ -132,3 +132,13 @@ background:linear-gradient(160deg,#fff,var(--brand-soft))}
 @media (max-width:576px){.stat .v{font-size:1.6rem}.ikon{width:50px;height:50px;font-size:1.4rem}.tabel th,.tabel td{padding:10px 8px}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media print{body::before,.btn,.bar-simpan,.judul-halaman .breadcrumb,.noprint{display:none!important}.kartu{box-shadow:none;border:1px solid #ddd}}
+
+/* laporan: tab periode & grafik */
+.tab-laporan{gap:6px}
+.tab-laporan .nav-link{border-radius:999px;font-weight:600;color:var(--mut);background:#f1f4f9}
+.tab-laporan .nav-link:hover{background:var(--brand-soft);color:var(--brand-dark)}
+.tab-laporan .nav-link.active{background:linear-gradient(135deg,var(--brand-light),var(--brand));color:var(--on-brand);box-shadow:0 8px 18px -8px var(--brand)}
+.grafik.biru .bar{background:linear-gradient(180deg,#67e8f9,#0284c7)}
+.grafik.rapat{gap:3px}.grafik.rapat .h{font-size:.62rem;writing-mode:vertical-rl;transform:rotate(180deg)}.grafik.rapat .n{font-size:.62rem}
+.rincian{max-height:360px;overflow:auto}.rincian thead th{position:sticky;top:0;z-index:1}
+.tabel td.text-start{text-align:left}
