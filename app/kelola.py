@@ -1,4 +1,6 @@
-"""Kelola data: koreksi (status, meja, waktu) dan hapus tiket antrian. Khusus petugas yang sudah login."""
+"""Kelola data: koreksi (status, meja, waktu) dan hapus tiket antrian. Khusus petugas yang sudah login.
+
+Hapus = soft delete: kolom dihapus_at diisi, barisnya tetap tersimpan di tabel tetapi tidak muncul di antrian maupun laporan."""
 import logging
 from datetime import date, datetime, timedelta
 
@@ -37,7 +39,7 @@ def _lokal(d) -> str:
 def daftar(tanggal: date) -> list:
     p = pengaturan.get()
     out = []
-    for r in q("SELECT * FROM queue_tiket WHERE tanggal=%s ORDER BY nomor", (tanggal,)):
+    for r in q("SELECT * FROM queue_tiket WHERE tanggal=%s AND dihapus_at IS NULL ORDER BY nomor", (tanggal,)):
         st = status_tiket(r)
         out.append({
             "id": r["id"], "nomor": r["nomor"], "nomor_txt": p3(r["nomor"]), "status": st,
@@ -102,13 +104,13 @@ def periksa(r: dict, data: dict, p: dict, meja_aktif_lain) -> dict:
 def ubah(id_: int, data: dict, p: dict) -> dict:
     with pool.connection() as c:
         c.execute("SELECT pg_advisory_xact_lock(%s)", (KUNCI,))
-        r = c.execute("SELECT * FROM queue_tiket WHERE id=%s", (id_,)).fetchone()
+        r = c.execute("SELECT * FROM queue_tiket WHERE id=%s AND dihapus_at IS NULL", (id_,)).fetchone()
         if not r:
             raise TidakAda("Data tidak ditemukan (mungkin sudah dihapus)")
 
         def meja_aktif_lain(m):
             return c.execute("SELECT 1 FROM queue_tiket WHERE tanggal=%s AND meja=%s AND dipanggil_at IS NOT NULL "
-                             "AND selesai_at IS NULL AND id<>%s LIMIT 1", (r["tanggal"], m, id_)).fetchone() is not None
+                             "AND selesai_at IS NULL AND dihapus_at IS NULL AND id<>%s LIMIT 1", (r["tanggal"], m, id_)).fetchone() is not None
 
         v = periksa(r, data, p, meja_aktif_lain)
         called = v["dipanggil_at"] is not None
@@ -122,7 +124,7 @@ def ubah(id_: int, data: dict, p: dict) -> dict:
 
 
 def hapus(ids: list) -> int:
-    """Hapus tiket terpilih; mengembalikan jumlah yang benar-benar terhapus."""
+    """Tandai tiket terpilih sebagai terhapus (soft delete); mengembalikan jumlah yang ditandai."""
     try:
         ids = sorted({int(i) for i in ids})
     except (TypeError, ValueError):
@@ -133,15 +135,15 @@ def hapus(ids: list) -> int:
         raise DataError(f"Maksimal {MAKS_HAPUS} data sekali hapus")
     with pool.connection() as c:
         c.execute("SELECT pg_advisory_xact_lock(%s)", (KUNCI,))
-        n = c.execute("DELETE FROM queue_tiket WHERE id = ANY(%s)", (ids,)).rowcount
+        n = c.execute("UPDATE queue_tiket SET dihapus_at=now() WHERE id = ANY(%s) AND dihapus_at IS NULL", (ids,)).rowcount
     log.info("kelola: hapus %s tiket (id=%s)", n, ids[:20])
     return n
 
 
 def hapus_tanggal(tanggal: date) -> int:
-    """Hapus semua tiket pada satu tanggal (nomor antrian hari itu mulai lagi dari 1)."""
+    """Tandai semua tiket pada satu tanggal sebagai terhapus (nomor antrian hari itu mulai lagi dari 1)."""
     with pool.connection() as c:
         c.execute("SELECT pg_advisory_xact_lock(%s)", (KUNCI,))
-        n = c.execute("DELETE FROM queue_tiket WHERE tanggal=%s", (tanggal,)).rowcount
+        n = c.execute("UPDATE queue_tiket SET dihapus_at=now() WHERE tanggal=%s AND dihapus_at IS NULL", (tanggal,)).rowcount
     log.info("kelola: hapus semua tiket tanggal %s (%s data)", tanggal, n)
     return n

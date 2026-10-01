@@ -100,7 +100,7 @@ def navigasi(per: dict) -> dict:
 
 
 def opsi_tahun(per: dict) -> list:
-    r = q("SELECT min(tanggal) AS a FROM queue_tiket", one=True)
+    r = q("SELECT min(tanggal) AS a FROM queue_tiket WHERE dihapus_at IS NULL", one=True)
     awal = min(r["a"].year if r and r["a"] else hari_ini().year, per.get("tahun") or hari_ini().year)
     return list(range(hari_ini().year, awal - 1, -1))
 
@@ -143,7 +143,7 @@ def _kunci_semua(gran, per, jam_ada):
 
 def data(per: dict, p: dict) -> dict:
     hi = hari_ini()
-    rows = q("SELECT * FROM queue_tiket WHERE tanggal BETWEEN %s AND %s ORDER BY tanggal, nomor", (per["awal"], per["akhir"]))
+    rows = q("SELECT * FROM queue_tiket WHERE tanggal BETWEEN %s AND %s AND dihapus_at IS NULL ORDER BY tanggal, nomor", (per["awal"], per["akhir"]))
     gran = _granularitas(per)
     lay, tgg, per_meja, hari_aktif, bucket, jam_ada = [], [], {}, set(), {}, set()
     for r in rows:

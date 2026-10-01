@@ -13,16 +13,16 @@ AKSI = {
         UPDATE queue_tiket SET meja=%(m)s,
                dipanggil_at=COALESCE(dipanggil_at, now()), mulai_at=COALESCE(mulai_at, now()),
                panggil_n=panggil_n+1, last_call_at=now()
-        WHERE id=%(id)s AND tanggal=%(t)s AND selesai_at IS NULL
+        WHERE id=%(id)s AND tanggal=%(t)s AND selesai_at IS NULL AND dihapus_at IS NULL
           AND (meja IS NULL OR meja=%(m)s)
           AND NOT EXISTS (SELECT 1 FROM queue_tiket x WHERE x.tanggal=%(t)s AND x.meja=%(m)s
-                          AND x.selesai_at IS NULL AND x.id<>%(id)s)
+                          AND x.selesai_at IS NULL AND x.dihapus_at IS NULL AND x.id<>%(id)s)
           AND NOT EXISTS (SELECT 1 FROM queue_tiket x WHERE x.tanggal=%(t)s AND x.dipanggil_at IS NULL
-                          AND x.id<>%(id)s AND x.nomor<queue_tiket.nomor)
+                          AND x.dihapus_at IS NULL AND x.id<>%(id)s AND x.nomor<queue_tiket.nomor)
         RETURNING id, nomor, meja, panggil_n""",
     "selesai": """
         UPDATE queue_tiket SET selesai_at=now(), mulai_at=COALESCE(mulai_at, dipanggil_at)
-        WHERE id=%(id)s AND tanggal=%(t)s AND meja=%(m)s AND dipanggil_at IS NOT NULL AND selesai_at IS NULL
+        WHERE id=%(id)s AND tanggal=%(t)s AND meja=%(m)s AND dipanggil_at IS NOT NULL AND selesai_at IS NULL AND dihapus_at IS NULL
         RETURNING id, nomor, meja, panggil_n""",
     "lewati": """
         UPDATE queue_tiket SET selesai_at=now(), lewat=true, mulai_at=COALESCE(mulai_at, dipanggil_at)
@@ -37,8 +37,8 @@ def tiket_baru() -> dict:
         c.execute("SELECT pg_advisory_xact_lock(%s)", (74200101,))  # nomor tidak bisa kembar
         r = c.execute(
             "INSERT INTO queue_tiket(tanggal, nomor) SELECT %(t)s, COALESCE(MAX(nomor),0)+1 "
-            "FROM queue_tiket WHERE tanggal=%(t)s RETURNING nomor", {"t": t}).fetchone()
-    depan = q("SELECT count(*) AS n FROM queue_tiket WHERE tanggal=%s AND dipanggil_at IS NULL AND nomor<%s",
+            "FROM queue_tiket WHERE tanggal=%(t)s AND dihapus_at IS NULL RETURNING nomor", {"t": t}).fetchone()
+    depan = q("SELECT count(*) AS n FROM queue_tiket WHERE tanggal=%s AND dihapus_at IS NULL AND dipanggil_at IS NULL AND nomor<%s",
               (t, r["nomor"]), one=True)["n"]
     return {"nomor": r["nomor"], "nomor_txt": p3(r["nomor"]), "depan": depan}
 
@@ -55,7 +55,7 @@ def lakukan(meja: int, id_: int, aksi: str, p: dict):
 def state(meja: int) -> dict:
     """Data halaman loket."""
     t, kini = hari_ini(), datetime.now(timezone.utc)
-    asc = q("SELECT * FROM queue_tiket WHERE tanggal=%s ORDER BY nomor", (t,))
+    asc = q("SELECT * FROM queue_tiket WHERE tanggal=%s AND dihapus_at IS NULL ORDER BY nomor", (t,))
     saya = next((r for r in asc if r["meja"] == meja and r["dipanggil_at"] and not r["selesai_at"]), None)
     nxt = next((r for r in asc if not r["dipanggil_at"]), None)
     last = max((r for r in asc if r["last_call_at"]), key=lambda r: r["last_call_at"], default=None)
@@ -88,11 +88,11 @@ def state(meja: int) -> dict:
 
 def monitor(p: dict) -> dict:
     t = hari_ini()
-    last = q("SELECT id, nomor, meja, panggil_n FROM queue_tiket WHERE tanggal=%s AND last_call_at IS NOT NULL "
+    last = q("SELECT id, nomor, meja, panggil_n FROM queue_tiket WHERE tanggal=%s AND dihapus_at IS NULL AND last_call_at IS NOT NULL "
              "ORDER BY last_call_at DESC LIMIT 1", (t,), one=True)
-    aktif = q("SELECT meja, nomor FROM queue_tiket WHERE tanggal=%s AND meja IS NOT NULL "
+    aktif = q("SELECT meja, nomor FROM queue_tiket WHERE tanggal=%s AND dihapus_at IS NULL AND meja IS NOT NULL "
               "AND dipanggil_at IS NOT NULL AND selesai_at IS NULL ORDER BY meja", (t,))
-    nxt = q("SELECT min(nomor) AS n, count(*) AS sisa FROM queue_tiket WHERE tanggal=%s AND dipanggil_at IS NULL",
+    nxt = q("SELECT min(nomor) AS n, count(*) AS sisa FROM queue_tiket WHERE tanggal=%s AND dihapus_at IS NULL AND dipanggil_at IS NULL",
             (t,), one=True)
     out = {"versi": p["_versi"], "sisa": nxt["sisa"], "selanjutnya": p3(nxt["n"]),
            "suara": {"aktif": p["suara_monitor"], "engine": p["suara_engine"]},

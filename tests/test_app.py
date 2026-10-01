@@ -590,11 +590,55 @@ def test_kelola_hapus(admin):
     r = k.post("/api/data/hapus", json={"ids": [ids[1], ids[3]]})
     assert r.status_code == 200 and r.json() == {"ok": True, "terhapus": 2}
     assert [x["nomor"] for x in k.get(f"/api/data?tanggal={t}").json()["rows"]] == [2]
+    # soft delete: barisnya tetap ada di tabel, hanya diberi tanda
+    sisa = db.q("SELECT nomor, dihapus_at IS NOT NULL AS hapus FROM queue_tiket WHERE tanggal=%s ORDER BY nomor", (t,))
+    assert [(x["nomor"], x["hapus"]) for x in sisa] == [(1, True), (2, False), (3, True)]
+    assert k.post("/api/data/hapus", json={"ids": [ids[1]]}).json()["terhapus"] == 0            # sudah terhapus: tidak dihitung lagi
+    assert _ubah(k, ids[1], status="menunggu", dibuat=f"{t}T09:00:00").status_code == 404      # data terhapus tidak bisa diedit
     r = k.post("/api/data/hapus-tanggal", json={"tanggal": str(t)})
     assert r.json() == {"ok": True, "terhapus": 1} and k.get(f"/api/data?tanggal={t}").json()["rows"] == []
+    assert db.q("SELECT count(*) AS n FROM queue_tiket WHERE tanggal=%s", (t,), one=True)["n"] == 3   # semua baris masih tersimpan
+    assert db.q("SELECT count(*) AS n FROM queue_tiket WHERE tanggal=%s AND dihapus_at IS NOT NULL", (t,), one=True)["n"] == 3
     assert k.post("/api/data/hapus-tanggal", json={"tanggal": "bukan"}).status_code == 422
-    assert db.q("SELECT count(*) AS n FROM queue_tiket WHERE tanggal<>%s", (t,), one=True)["n"] == lain   # tanggal lain utuh
+    assert db.q("SELECT count(*) AS n FROM queue_tiket WHERE tanggal<>%s AND dihapus_at IS NULL", (t,), one=True)["n"] == lain   # tanggal lain utuh
     assert k.srv.psql("select count(*) from queue_antrian_admisi").split()[2] == "1"                      # tabel lama utuh
+
+
+def test_data_terhapus_hilang_dari_laporan(riwayat, mod):
+    k = riwayat
+    sebelum = hitung(mod, jenis="harian", tanggal=__import__("datetime").date(2026, 8, 3))["ring"]
+    assert sebelum["total"] == 3
+    k.srv.psql("UPDATE queue_tiket SET dihapus_at=now() WHERE tanggal='2026-08-03' AND nomor=3")      # 003 = tidak hadir
+    h = hitung(mod, jenis="harian", tanggal=__import__("datetime").date(2026, 8, 3))["ring"]
+    assert (h["total"], h["selesai"], h["lewat"]) == (2, 2, 0)
+    b = hitung(mod, jenis="bulanan", bulan=8, tahun=2026)["ring"]
+    assert (b["total"], b["lewat"]) == (4, 0)
+    k.srv.psql("UPDATE queue_tiket SET dihapus_at=now() WHERE tanggal<'2026-09-01'")
+    assert mod.laporan.opsi_tahun(mod.laporan.periode(jenis="tahunan", tahun=2026))[-1] == 2026       # tahun 2025 (terhapus) tidak lagi jadi pilihan
+    assert hitung(mod, jenis="tahunan", tahun=2025)["ring"]["total"] == 0
+    assert hitung(mod, jenis="tahunan", tahun=2026)["ring"]["total"] == 1
+    k.srv.psql("UPDATE queue_tiket SET dihapus_at=NULL")
+
+
+def test_migrasi_skema_lama_dan_nomor_unik_hanya_data_aktif(admin):
+    from app import db
+    k = admin
+    # meniru tabel versi sebelumnya: tanpa kolom dihapus_at, dengan UNIQUE (tanggal, nomor)
+    k.srv.psql("DROP INDEX IF EXISTS queue_tiket_nomor_aktif; ALTER TABLE queue_tiket DROP COLUMN dihapus_at;"
+               "ALTER TABLE queue_tiket ADD CONSTRAINT queue_tiket_tanggal_nomor_key UNIQUE (tanggal, nomor)")
+    for _ in range(2):                                                         # idempoten: aman dijalankan tiap start
+        for s in db.TABEL:
+            db.q(s)
+    ada = k.srv.psql("select column_name from information_schema.columns where table_name='queue_tiket' and column_name='dihapus_at'")
+    assert "dihapus_at" in ada
+    assert "queue_tiket_tanggal_nomor_key" not in k.srv.psql("select conname from pg_constraint where conrelid='queue_tiket'::regclass")
+    bersih(k)
+    assert k.post("/api/tiket").json()["nomor"] == 1
+    k.srv.psql("UPDATE queue_tiket SET dihapus_at=now()")
+    assert k.post("/api/tiket").json()["nomor"] == 1                             # nomor bekas data terhapus boleh dipakai lagi
+    assert db.q("SELECT count(*) AS n FROM queue_tiket WHERE nomor=1", one=True)["n"] == 2
+    assert k.srv.psql("select count(*) from queue_tiket where tanggal=current_date and nomor=1 and dihapus_at is null").split()[2] == "1"
+    bersih(k)
 
 
 def test_kelola_hapus_hari_ini_nomor_mulai_dari_satu(admin):
@@ -604,6 +648,6 @@ def test_kelola_hapus_hari_ini_nomor_mulai_dari_satu(admin):
     hari = k.get("/api/data").json()
     assert len(hari["rows"]) == 3 and [r["status"] for r in hari["rows"]] == ["menunggu"] * 3
     assert k.post("/api/data/hapus-tanggal", json={"tanggal": hari["tanggal"]}).json()["terhapus"] == 3
-    assert k.get("/api/loket/1").json()["jumlah"] == 0
+    assert k.get("/api/loket/1").json()["jumlah"] == 0 and k.get("/api/monitor").json()["sisa"] == 0
     assert k.post("/api/tiket").json()["nomor"] == 1                    # penomoran hari ini mulai lagi dari 1
     bersih(k)

@@ -15,8 +15,12 @@ CREATE TABLE IF NOT EXISTS queue_tiket (
   lewat        boolean     NOT NULL DEFAULT false,
   panggil_n    int         NOT NULL DEFAULT 0,
   last_call_at timestamptz,
-  UNIQUE (tanggal, nomor)
+  dihapus_at   timestamptz            -- soft delete: terisi = dianggap terhapus (tidak tampil di antrian & laporan)
 );
+-- Untuk tabel yang SUDAH ada dari versi sebelumnya (aplikasi juga menjalankannya otomatis saat start):
+ALTER TABLE queue_tiket ADD COLUMN IF NOT EXISTS dihapus_at timestamptz;
+ALTER TABLE queue_tiket DROP CONSTRAINT IF EXISTS queue_tiket_tanggal_nomor_key;
+CREATE UNIQUE INDEX IF NOT EXISTS queue_tiket_nomor_aktif ON queue_tiket (tanggal, nomor) WHERE dihapus_at IS NULL;
 
 -- Beri hak ke user aplikasi (ganti NAMA_USER) bila tabel dibuat oleh user lain:
 -- GRANT SELECT, INSERT, UPDATE ON queue_tiket TO NAMA_USER;

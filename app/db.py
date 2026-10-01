@@ -41,8 +41,13 @@ TABEL = [
       lewat        boolean     NOT NULL DEFAULT false,
       panggil_n    int         NOT NULL DEFAULT 0,
       last_call_at timestamptz,
-      UNIQUE (tanggal, nomor)
+      dihapus_at   timestamptz
     )""",
+    # Hapus data = soft delete: baris tetap ada, dihapus_at terisi, dan tidak ikut antrian/laporan.
+    "ALTER TABLE queue_tiket ADD COLUMN IF NOT EXISTS dihapus_at timestamptz",
+    # nomor harus unik hanya di antara data yang belum dihapus (nomor bekas data terhapus boleh dipakai lagi)
+    "ALTER TABLE queue_tiket DROP CONSTRAINT IF EXISTS queue_tiket_tanggal_nomor_key",
+    "CREATE UNIQUE INDEX IF NOT EXISTS queue_tiket_nomor_aktif ON queue_tiket (tanggal, nomor) WHERE dihapus_at IS NULL",
     """CREATE TABLE IF NOT EXISTS queue_pengaturan (
       kunci     text PRIMARY KEY,
       nilai     text NOT NULL DEFAULT '',

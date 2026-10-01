@@ -10,7 +10,7 @@ Stack: Python 3.12 · FastAPI · PostgreSQL · Bootstrap 5 (disalin lokal) · Do
 | `/kiosk` | Pengunjung ambil nomor (tanpa tombol cetak) | – |
 | `/monitor` | Layar TV PST: video YouTube berulang, nomor sekarang, selanjutnya + meja, sisa antrian, suara panggilan | – |
 | `/loket/{n}` | Petugas meja: **Panggil** (sekaligus mulai) → **Selesai** (+ panggil ulang, tidak hadir) | ya |
-| `/data` | **Kelola Data**: edit status/meja/waktu tiket dan hapus data (per baris, terpilih, atau semua pada satu tanggal) | ya |
+| `/data` | **Kelola Data**: edit status/meja/waktu tiket dan hapus data (soft delete: per baris, terpilih, atau semua pada satu tanggal) | ya |
 | `/laporan` | Laporan **harian**, **bulanan** (pilih bulan & tahun), **tahunan** (pilih tahun), **rentang tanggal** (awal–akhir, maks 366 hari); grafik, ringkasan per meja, unduh Excel | ya |
 | `/pengaturan` | Instansi, footer, meja, logo & warna, suara, printer | ya |
 
@@ -50,6 +50,7 @@ Server biasa tanpa Coolify: lihat **[DEPLOY.md](DEPLOY.md)**.
 
 ## Data
 Tabel yang dibuat aplikasi (tabel lain di database tidak disentuh): `queue_tiket` (riwayat antrian & waktu), `queue_pengaturan` (pengaturan), `queue_logo` (logo).
+Hapus data di menu **Kelola Data** adalah *soft delete*: baris tetap ada di `queue_tiket` dengan kolom `dihapus_at` terisi, tidak tampil di antrian/laporan. Lihat datanya: `SELECT * FROM queue_tiket WHERE dihapus_at IS NOT NULL;`
 Saat pertama kali jalan, pengaturan awal (nama, alamat, YouTube, warna, daftar meja) otomatis dibaca dari tabel lama `queue_setting` bila ada.
 
 ## Struktur
