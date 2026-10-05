@@ -11,7 +11,7 @@ from openpyxl.utils import get_column_letter
 from . import pengaturan
 from .config import TZ
 from .db import q
-from .util import BULAN, dur, hari_ini, hms, mmss, p3, tanggal_id
+from .util import BULAN, dur, hari_ini, hms, mmss, p3, tanggal_id, tunggu_antre
 
 JENIS = ("harian", "bulanan", "tahunan", "rentang")
 MAKS_HARI = 366
@@ -145,8 +145,10 @@ def data(per: dict, p: dict) -> dict:
     hi = hari_ini()
     rows = q("SELECT * FROM queue_tiket WHERE tanggal BETWEEN %s AND %s AND dihapus_at IS NULL ORDER BY tanggal, nomor", (per["awal"], per["akhir"]))
     gran = _granularitas(per)
-    lay, tgg, per_meja, hari_aktif, bucket, jam_ada = [], [], {}, set(), {}, set()
+    lay, tgg, tga, per_meja, hari_aktif, bucket, jam_ada = [], [], [], {}, set(), {}, set()
+    ta = tunggu_antre(rows)
     for r in rows:
+        r["tunggu_antre"] = ta.get(r["id"])
         r["tunggu"] = dur(r["dibuat_at"], r["dipanggil_at"])
         r["layanan"] = dur(r["mulai_at"], r["selesai_at"]) if (r["selesai_at"] and not r["lewat"]) else None
         lampau = r["tanggal"] < hi
@@ -158,6 +160,8 @@ def data(per: dict, p: dict) -> dict:
             tgg.append(r["tunggu"])
         if r["layanan"] is not None:
             lay.append(r["layanan"])
+        if r["tunggu_antre"] is not None:
+            tga.append(r["tunggu_antre"])
         if gran == "jam":
             k = r["dibuat_at"].astimezone(TZ).hour
             jam_ada.add(k)
@@ -165,7 +169,7 @@ def data(per: dict, p: dict) -> dict:
             k = r["tanggal"]
         else:
             k = (r["tanggal"].year, r["tanggal"].month)
-        b = bucket.setdefault(k, {"n": 0, "lay": [], "tgg": [], "lewat": 0, "tdk": 0})
+        b = bucket.setdefault(k, {"n": 0, "lay": [], "tgg": [], "tga": [], "lewat": 0, "tdk": 0})
         b["n"] += 1
         b["lewat"] += 1 if r["lewat"] else 0
         b["tdk"] += 1 if r["status"] in ("tidak dilayani", "belum ditutup") else 0
@@ -173,6 +177,8 @@ def data(per: dict, p: dict) -> dict:
             b["lay"].append(r["layanan"])
         if r["tunggu"] is not None:
             b["tgg"].append(r["tunggu"])
+        if r["tunggu_antre"] is not None:
+            b["tga"].append(r["tunggu_antre"])
         if r["meja"]:
             m = per_meja.setdefault(r["meja"], {"n": 0, "lay": [], "lewat": 0})
             m["n"] += 1
@@ -187,16 +193,17 @@ def data(per: dict, p: dict) -> dict:
             "rata_layanan": mmss(_rata(lay)), "maks_layanan": mmss(max(lay)) if lay else "-",
             "min_layanan": mmss(min(lay)) if lay else "-", "rata_tunggu": mmss(_rata(tgg)),
             "maks_tunggu": mmss(max(tgg)) if tgg else "-",
+            "rata_tunggu_antre": mmss(_rata(tga)), "maks_tunggu_antre": mmss(max(tga)) if tga else "-",
             "hari_aktif": len(hari_aktif), "rata_per_hari": round(len(rows) / len(hari_aktif), 1) if hari_aktif else 0}
 
     seri = []
     for k in _kunci_semua(gran, per, jam_ada):
-        b = bucket.get(k, {"n": 0, "lay": [], "tgg": [], "lewat": 0, "tdk": 0})
+        b = bucket.get(k, {"n": 0, "lay": [], "tgg": [], "tga": [], "lewat": 0, "tdk": 0})
         pendek, panjang = _label(gran, k, per)
         ra = _rata(b["lay"])
         seri.append({"label": pendek, "label_panjang": panjang, "n": b["n"], "selesai": len(b["lay"]), "lewat": b["lewat"],
                      "tdk": b["tdk"], "rata": mmss(ra), "rata_detik": ra or 0, "maks": mmss(max(b["lay"])) if b["lay"] else "-",
-                     "rata_tunggu": mmss(_rata(b["tgg"]))})
+                     "rata_tunggu": mmss(_rata(b["tgg"])), "rata_tunggu_antre": mmss(_rata(b["tga"]))})
     mn, mr = max([s["n"] for s in seri] + [1]), max([s["rata_detik"] for s in seri] + [1])
     for s in seri:
         s["pct"], s["pct_lay"] = round(s["n"] * 100 / mn), round(s["rata_detik"] * 100 / mr)
@@ -207,7 +214,7 @@ def data(per: dict, p: dict) -> dict:
              "rata": rata(v["lay"]), "maks": mmss(max(v["lay"])) if v["lay"] else "-"} for no, v in sorted(per_meja.items())]
     for r in rows:
         r.update(nomor_txt=p3(r["nomor"]), tgl_txt=r["tanggal"].strftime("%d/%m/%Y"), ambil=hms(r["dibuat_at"]),
-                 panggil=hms(r["dipanggil_at"]), selesai_jam=hms(r["selesai_at"]), tunggu_txt=mmss(r["tunggu"]),
+                 panggil=hms(r["dipanggil_at"]), selesai_jam=hms(r["selesai_at"]), tunggu_txt=mmss(r["tunggu"]), tunggu_antre_txt=mmss(r["tunggu_antre"]),
                  layanan_txt=mmss(r["layanan"]),
                  meja_nama=(pengaturan.nama_meja(p, r["meja"]) or f"Meja {r['meja']}") if r["meja"] else "-")
     return {"ring": ring, "seri": seri, "gran": gran, "meja": meja, "rows": rows,
@@ -237,7 +244,8 @@ def xlsx(per: dict, p: dict) -> bytes:
                   ["Selesai dilayani", g["selesai"]], ["Tidak hadir", g["lewat"]],
                   ["Tidak dilayani / belum ditutup", g["tdk_dilayani"]],
                   ["Rata-rata lama layanan (mm:ss)", g["rata_layanan"]], ["Layanan terlama (mm:ss)", g["maks_layanan"]],
-                  ["Layanan tercepat (mm:ss)", g["min_layanan"]], ["Rata-rata waktu tunggu (mm:ss)", g["rata_tunggu"]],
+                  ["Layanan tercepat (mm:ss)", g["min_layanan"]], ["Rata-rata tunggu sejak ambil nomor (mm:ss)", g["rata_tunggu"]],
+                  ["Rata-rata tunggu antre (mm:ss)", g["rata_tunggu_antre"]], ["Tunggu antre terlama (mm:ss)", g["maks_tunggu_antre"]],
                   ["Hari beroperasi", g["hari_aktif"]], ["Rata-rata antrian per hari", g["rata_per_hari"]], [],
                   ["Meja", "Dilayani", "Tidak hadir", "Rata-rata layanan", "Terlama"]):
         ws.append(baris)
@@ -247,20 +255,20 @@ def xlsx(per: dict, p: dict) -> bytes:
     r2 = wb.create_sheet("Rincian")
     r2.append([{"jam": "Jam", "hari": "Tanggal", "bulan": "Bulan"}[d["gran"]], "Total antrian", "Selesai dilayani", "Tidak hadir",
                "Tidak dilayani / belum ditutup", "Rata-rata layanan (mm:ss)", "Layanan terlama (mm:ss)", "Rata-rata layanan (detik)",
-               "Rata-rata tunggu (mm:ss)"])
+               "Rata-rata tunggu sejak ambil nomor (mm:ss)", "Rata-rata tunggu antre (mm:ss)"])
     for s in d["seri"]:
         r2.append([s["label_panjang"], s["n"], s["selesai"], s["lewat"], s["tdk"], s["rata"], s["maks"],
-                   round(s["rata_detik"]) if s["selesai"] else None, s["rata_tunggu"]])
-    _gaya(r2, [30, 14, 16, 12, 22, 22, 22, 22, 22])
+                   round(s["rata_detik"]) if s["selesai"] else None, s["rata_tunggu"], s["rata_tunggu_antre"]])
+    _gaya(r2, [30, 14, 16, 12, 22, 22, 22, 22, 26, 24])
     r3 = wb.create_sheet("Detail")
-    r3.append(["Tanggal", "Nomor", "Meja", "Ambil", "Panggil & Mulai", "Selesai", "Tunggu (mm:ss)", "Layanan (mm:ss)",
-               "Tunggu (detik)", "Layanan (detik)", "Status"])
+    r3.append(["Tanggal", "Nomor", "Meja", "Ambil", "Panggil & Mulai", "Selesai", "Tunggu sejak ambil (mm:ss)", "Tunggu antre (mm:ss)", "Layanan (mm:ss)",
+               "Tunggu sejak ambil (detik)", "Tunggu antre (detik)", "Layanan (detik)", "Status"])
     for r in d["rows"]:
         r3.append([r["tanggal"], r["nomor_txt"], r["meja_nama"], r["ambil"], r["panggil"], r["selesai_jam"], r["tunggu_txt"],
-                   r["layanan_txt"], r["tunggu"], r["layanan"], r["status"]])
+                   r["tunggu_antre_txt"], r["layanan_txt"], r["tunggu"], r["tunggu_antre"], r["layanan"], r["status"]])
     for row in r3.iter_rows(min_row=2, max_col=1):
         row[0].number_format = "DD/MM/YYYY"
-    _gaya(r3, [14, 10, 16, 11, 16, 11, 16, 16, 14, 14, 16])
+    _gaya(r3, [14, 10, 16, 11, 16, 11, 18, 18, 16, 18, 18, 14, 16])
     r3.auto_filter.ref = r3.dimensions
     buf = io.BytesIO()
     wb.save(buf)

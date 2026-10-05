@@ -58,13 +58,14 @@
 <div class="row g-3 mb-3">
   {% set kpi = [("bi-people","ikon-kuning","v-kuning",ring.total,"Total antrian"),("bi-person-check","ikon-hijau","v-hijau",ring.selesai,"Selesai dilayani"),
      ("bi-stopwatch","ikon-biru","v-biru",ring.rata_layanan,"Rata-rata lama layanan"),("bi-hourglass-split","ikon-merah","v-merah",ring.maks_layanan,"Layanan terlama"),
-     ("bi-clock-history","ikon-kuning","v-kuning",ring.rata_tunggu,"Rata-rata waktu tunggu"),("bi-person-x","ikon-merah","v-merah",ring.lewat,"Tidak hadir")] %}
+     ("bi-clock-history","ikon-kuning","v-kuning",ring.rata_tunggu,"Rata-rata tunggu sejak ambil nomor"),("bi-person-x","ikon-merah","v-merah",ring.lewat,"Tidak hadir"),
+     ("bi-hourglass-top","ikon-biru","v-biru",ring.rata_tunggu_antre,"Rata-rata tunggu antre"),("bi-hourglass-bottom","ikon-merah","v-merah",ring.maks_tunggu_antre,"Tunggu antre terlama")] %}
   {% for ic,cls,vc,val,lab in kpi %}
-  <div class="col-6 col-lg-4 muncul"><div class="kartu stat"><div class="ikon {{ cls }}"><i class="bi {{ ic }}"></i></div><div><div class="v {{ vc }}">{{ val }}</div><div class="l">{{ lab }}</div></div></div></div>
+  <div class="col-6 col-lg-3 muncul"><div class="kartu stat"><div class="ikon {{ cls }}"><i class="bi {{ ic }}"></i></div><div><div class="v {{ vc }}">{{ val }}</div><div class="l">{{ lab }}</div></div></div></div>
   {% endfor %}
 </div>
 <p class="text-secondary small mb-3 px-1">
-  Format waktu mm:ss. Lama layanan = saat dipanggil (mulai) sampai selesai; nomor tidak hadir tidak dihitung. Layanan tercepat: {{ ring.min_layanan }}.
+  Format waktu mm:ss. Lama layanan = saat dipanggil (mulai) sampai selesai; nomor tidak hadir tidak dihitung. <b>Tunggu</b> = sejak ambil nomor sampai dipanggil. <b>Tunggu antre</b> = sejak layanan sebelumnya (meja mana pun) selesai sampai dipanggil; antrian pertama dihitung sejak ambil nomor. Layanan tercepat: {{ ring.min_layanan }}.
   {% if per.hari > 1 %}Hari beroperasi: {{ ring.hari_aktif }} · Rata-rata {{ ring.rata_per_hari }} antrian/hari.{% endif %}
   {% if ring.menunggu or ring.berjalan %}Menunggu: {{ ring.menunggu }} · Sedang berjalan: {{ ring.berjalan }}.{% endif %}
   {% if ring.tdk_dilayani %}Tidak dilayani / belum ditutup: {{ ring.tdk_dilayani }}.{% endif %}
@@ -86,8 +87,8 @@
     </tbody></table></div>{% else %}<p class="text-secondary mb-0">Belum ada data.</p>{% endif %}</section></div>
   {% if gran != 'jam' %}
   <div class="col-lg-7 muncul"><section class="kartu h-100"><div class="jd"><i class="bi bi-table"></i> Rincian {{ judul_seri }}</div>
-    <div class="table-responsive rincian"><table class="tabel"><thead><tr><th>{{ 'Tanggal' if gran == 'hari' else 'Bulan' }}</th><th>Antrian</th><th>Dilayani</th><th>Tdk hadir</th><th>Rata-rata</th><th>Terlama</th><th>Tunggu</th></tr></thead><tbody>
-      {% for s in seri %}<tr class="{{ 'text-secondary' if not s.n }}"><td class="text-start fw-semibold">{{ s.label_panjang }}</td><td>{{ s.n }}</td><td>{{ s.selesai }}</td><td>{{ s.lewat }}</td><td class="num">{{ s.rata }}</td><td class="num">{{ s.maks }}</td><td class="num">{{ s.rata_tunggu }}</td></tr>{% endfor %}
+    <div class="table-responsive rincian"><table class="tabel"><thead><tr><th>{{ 'Tanggal' if gran == 'hari' else 'Bulan' }}</th><th>Antrian</th><th>Dilayani</th><th>Tdk hadir</th><th>Rata-rata</th><th>Terlama</th><th title="Sejak ambil nomor">Tunggu</th><th title="Sejak layanan sebelumnya selesai">Tunggu antre</th></tr></thead><tbody>
+      {% for s in seri %}<tr class="{{ 'text-secondary' if not s.n }}"><td class="text-start fw-semibold">{{ s.label_panjang }}</td><td>{{ s.n }}</td><td>{{ s.selesai }}</td><td>{{ s.lewat }}</td><td class="num">{{ s.rata }}</td><td class="num">{{ s.maks }}</td><td class="num">{{ s.rata_tunggu }}</td><td class="num">{{ s.rata_tunggu_antre }}</td></tr>{% endfor %}
     </tbody></table></div></section></div>
   {% endif %}
 </div>
@@ -95,11 +96,11 @@
 <section class="kartu muncul"><div class="jd"><i class="bi bi-list-ul"></i> Detail antrian</div>
   {% if tampil_detail %}
   <div class="table-responsive"><table class="tabel">
-    <thead><tr>{% if per.jenis != 'harian' %}<th>Tanggal</th>{% endif %}<th>Nomor</th><th>Meja</th><th>Ambil</th><th>Panggil &amp; Mulai</th><th>Selesai</th><th>Tunggu</th><th>Layanan</th><th>Status</th></tr></thead>
+    <thead><tr>{% if per.jenis != 'harian' %}<th>Tanggal</th>{% endif %}<th>Nomor</th><th>Meja</th><th>Ambil</th><th>Panggil &amp; Mulai</th><th>Selesai</th><th title="Sejak ambil nomor">Tunggu</th><th title="Sejak layanan sebelumnya selesai">Tunggu antre</th><th>Layanan</th><th>Status</th></tr></thead>
     <tbody>{% for x in rows %}<tr>{% if per.jenis != 'harian' %}<td class="num">{{ x.tgl_txt }}</td>{% endif %}<td class="no">{{ x.nomor_txt }}</td><td>{{ x.meja_nama }}</td><td class="num">{{ x.ambil }}</td><td class="num">{{ x.panggil }}</td><td class="num">{{ x.selesai_jam }}</td>
-      <td class="num">{{ x.tunggu_txt }}</td><td class="num fw-semibold">{{ x.layanan_txt }}</td>
+      <td class="num">{{ x.tunggu_txt }}</td><td class="num fw-semibold">{{ x.tunggu_antre_txt }}</td><td class="num fw-semibold">{{ x.layanan_txt }}</td>
       <td><span class="lencana {{ {'menunggu':'l-menunggu','berjalan':'l-aktif','selesai':'l-selesai','tidak hadir':'l-lewat','tidak dilayani':'l-menunggu','belum ditutup':'l-menunggu'}[x.status] }}">{{ x.status|capitalize }}</span></td></tr>
-    {% else %}<tr><td colspan="9" class="text-secondary py-4">Belum ada data pada periode ini</td></tr>{% endfor %}</tbody>
+    {% else %}<tr><td colspan="10" class="text-secondary py-4">Belum ada data pada periode ini</td></tr>{% endfor %}</tbody>
   </table></div>
   {% else %}
   <p class="mb-0 text-secondary"><i class="bi bi-info-circle me-1"></i>Periode ini berisi {{ ring.total }} antrian, terlalu banyak untuk ditampilkan di layar. Detail lengkap per antrian ada di file Excel (lembar <b>Detail</b>).

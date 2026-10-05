@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from . import pengaturan
 from .config import TZ
 from .db import pool, q
-from .util import dur, hms, mmss, p3, sekarang
+from .util import dur, hms, mmss, p3, sekarang, tunggu_antre
 
 log = logging.getLogger("uvicorn.error")
 KUNCI = 74200101          # sama dengan antrian.tiket_baru: pembuatan nomor & hapus/ubah tidak saling menabrak
@@ -39,12 +39,14 @@ def _lokal(d) -> str:
 def daftar(tanggal: date) -> list:
     p = pengaturan.get()
     out = []
-    for r in q("SELECT * FROM queue_tiket WHERE tanggal=%s AND dihapus_at IS NULL ORDER BY nomor", (tanggal,)):
+    rows = q("SELECT * FROM queue_tiket WHERE tanggal=%s AND dihapus_at IS NULL ORDER BY nomor", (tanggal,))
+    ta = tunggu_antre(rows)
+    for r in rows:
         st = status_tiket(r)
         out.append({
             "id": r["id"], "nomor": r["nomor"], "nomor_txt": p3(r["nomor"]), "status": st,
             "meja": r["meja"], "meja_nama": (pengaturan.nama_meja(p, r["meja"]) or f"Meja {r['meja']}") if r["meja"] else "-",
-            "dibuat": hms(r["dibuat_at"]), "dipanggil": hms(r["dipanggil_at"]), "selesai": hms(r["selesai_at"]),
+            "dibuat": hms(r["dibuat_at"]), "dipanggil": hms(r["dipanggil_at"]), "selesai": hms(r["selesai_at"]), "tunggu_antre": mmss(ta.get(r["id"])),
             "durasi": mmss(dur(r["mulai_at"], r["selesai_at"])) if st == "selesai" else "-",
             "dibuat_iso": _lokal(r["dibuat_at"]), "dipanggil_iso": _lokal(r["dipanggil_at"]), "selesai_iso": _lokal(r["selesai_at"]),
         })

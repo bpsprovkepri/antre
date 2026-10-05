@@ -50,6 +50,8 @@ Server biasa tanpa Coolify: lihat **[DEPLOY.md](DEPLOY.md)**.
 
 ## Data
 Tabel yang dibuat aplikasi (tabel lain di database tidak disentuh): `queue_tiket` (riwayat antrian & waktu), `queue_pengaturan` (pengaturan), `queue_logo` (logo).
+**Lama tunggu antre** (laporan, Excel, dan Kelola Data): dihitung sampai nomor dipanggil, mulai dari saat ambil nomor untuk antrian pertama, dan mulai dari saat layanan sebelumnya (meja 1/2) selesai untuk antrian berikutnya. Jika nomor baru diambil setelah layanan sebelumnya selesai, dihitung sejak ambil nomor. Nilai dihitung saat laporan dibuka (tidak disimpan di database), jadi ikut berubah bila waktu dikoreksi.
+
 Hapus data di menu **Kelola Data** adalah *soft delete*: baris tetap ada di `queue_tiket` dengan kolom `dihapus_at` terisi, tidak tampil di antrian/laporan. Lihat datanya: `SELECT * FROM queue_tiket WHERE dihapus_at IS NOT NULL;`
 Saat pertama kali jalan, pengaturan awal (nama, alamat, YouTube, warna, daftar meja) otomatis dibaca dari tabel lama `queue_setting` bila ada.
 

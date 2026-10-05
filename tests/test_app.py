@@ -195,6 +195,7 @@ def test_hitungan_harian_bulanan_tahunan_rentang(riwayat, mod):
     r = b["ring"]
     assert (r["total"], r["selesai"], r["lewat"], r["tdk_dilayani"], r["hari_aktif"], r["rata_per_hari"]) == (5, 3, 1, 1, 2, 2.5)
     assert (r["rata_layanan"], r["maks_layanan"], r["min_layanan"], r["rata_tunggu"]) == ("03:20", "05:00", "02:00", "04:30")
+    assert (r["rata_tunggu_antre"], r["maks_tunggu_antre"]) == ("04:00", "10:00")             # (120+180+600+60)/4 detik
     assert b["gran"] == "hari" and len(b["seri"]) == 31 and b["seri"][2]["n"] == 3 and b["seri"][3]["n"] == 2
     assert b["seri"][2]["rata"] == "03:30" and b["seri"][2]["label_panjang"] == "Sen, 3 Agustus 2026"
     t = hitung(mod, jenis="tahunan", tahun=2026)
@@ -280,7 +281,7 @@ def test_excel_semua_jenis(riwayat):
     assert ring["Laporan Bulanan"] == "Agustus 2026" and ring["Total antrian"] == 5 and ring["Rata-rata lama layanan (mm:ss)"] == "03:20"
     assert wb["Rincian"].max_row == 32                                   # header + 31 hari
     det = list(wb["Detail"].iter_rows(values_only=True))
-    assert len(det) == 6 and det[1][1] == "001" and det[1][9] == 300 and det[3][10] == "tidak hadir" and det[5][10] == "tidak dilayani"
+    assert len(det) == 6 and det[1][1] == "001" and det[1][11] == 300 and det[3][12] == "tidak hadir" and det[5][12] == "tidak dilayani"
     assert det[1][0].strftime("%Y-%m-%d") == "2026-08-03"
     t = load_workbook(io.BytesIO(k.get("/laporan.xlsx?jenis=tahunan&tahun=2026").content))
     assert t["Rincian"].max_row == 13 and t["Detail"].max_row == 7
@@ -651,3 +652,78 @@ def test_kelola_hapus_hari_ini_nomor_mulai_dari_satu(admin):
     assert k.get("/api/loket/1").json()["jumlah"] == 0 and k.get("/api/monitor").json()["sisa"] == 0
     assert k.post("/api/tiket").json()["nomor"] == 1                    # penomoran hari ini mulai lagi dari 1
     bersih(k)
+
+
+# ---------- lama tunggu antre ----------
+def _tk(id_, nomor, dibuat, dipanggil=None, selesai=None, tgl="2026-08-03"):
+    from datetime import datetime, timedelta, timezone
+    wib = timezone(timedelta(hours=7))
+
+    def w(x):
+        return datetime.fromisoformat(f"{tgl}T{x}").replace(tzinfo=wib) if x else None
+    return {"id": id_, "tanggal": __import__("datetime").date.fromisoformat(tgl), "nomor": nomor,
+            "dibuat_at": w(dibuat), "dipanggil_at": w(dipanggil), "selesai_at": w(selesai)}
+
+
+def test_tunggu_antre_rumus(mod):
+    t = mod.util.tunggu_antre
+    # antrian pertama: sejak ambil nomor; berikutnya: sejak layanan sebelumnya selesai
+    h = t([_tk(1, 1, "10:00:00", "10:02:00", "10:07:00"), _tk(2, 2, "10:05:00", "10:10:00", "10:12:00")])
+    assert h == {1: 120, 2: 180}                                       # 2: 10:10 - 10:07 (bukan 10:10 - 10:05)
+    # diambil SETELAH layanan sebelumnya selesai: dihitung sejak ambil nomor, bukan sejak selesai sebelumnya
+    h = t([_tk(1, 1, "10:00:00", "10:02:00", "10:07:00"), _tk(2, 2, "10:20:00", "10:20:40", "10:25:00")])
+    assert h[2] == 40
+    # belum dipanggil / data tidak lengkap: tidak dihitung
+    h = t([_tk(1, 1, "10:00:00", "10:01:00"), _tk(2, 2, "10:02:00")])
+    assert h == {1: 60}
+    # dua meja berjalan bersamaan: yang dipakai adalah layanan terakhir yang SUDAH selesai sebelum dipanggil
+    h = t([_tk(1, 1, "09:00:00", "09:00:30", "09:10:00"),            # meja 1, lama
+           _tk(2, 2, "09:01:00", "09:02:00", "09:05:00"),            # meja 2: belum ada yang selesai -> sejak ambil nomor
+           _tk(3, 3, "09:01:30", "09:05:30", "09:08:00"),            # 001 masih jalan; 002 selesai 09:05 -> 30 dtk
+           _tk(4, 4, "09:02:00", "09:10:20", "09:11:00")])           # 001 selesai 09:10 (terakhir) -> 20 dtk
+    assert h == {1: 30, 2: 60, 3: 30, 4: 20}
+    # tiket yang dilewati (tidak hadir) ikut membebaskan meja; tiap tanggal dihitung sendiri-sendiri
+    h = t([_tk(1, 1, "10:00:00", "10:01:00", "10:02:00"), _tk(2, 2, "10:00:30", "10:03:00", "10:03:10"),
+           _tk(9, 1, "08:00:00", "08:04:00", "08:05:00", tgl="2026-08-04")])
+    assert h == {1: 60, 2: 60, 9: 240}
+    # data aneh (dipanggil lebih awal dari ambil nomor) tidak menghasilkan angka negatif
+    assert t([_tk(1, 1, "10:05:00", "10:00:00")]) == {1: 0}
+
+
+def test_tunggu_antre_di_laporan_dan_kelola_data(riwayat, mod):
+    import io
+    from datetime import date
+    from openpyxl import load_workbook
+    k = riwayat
+    h = hitung(mod, jenis="harian", tanggal=date(2026, 8, 3))
+    assert [r["tunggu_antre_txt"] for r in h["rows"]] == ["02:00", "03:00", "10:00"]
+    assert [r["tunggu_txt"] for r in h["rows"]] == ["02:00", "05:00", "10:00"]         # tunggu sejak ambil nomor tetap ada
+    assert (h["ring"]["rata_tunggu_antre"], h["ring"]["maks_tunggu_antre"]) == ("05:00", "10:00")
+    assert h["seri"][3]["rata_tunggu_antre"] == "05:00" and h["seri"][0]["rata_tunggu_antre"] == "-"    # jam 10; jam 07 kosong
+    b = hitung(mod, jenis="bulanan", bulan=8, tahun=2026)
+    assert b["seri"][3]["rata_tunggu_antre"] == "01:00" and b["seri"][2]["rata_tunggu_antre"] == "05:00"   # 4 Agu, 3 Agu
+    assert [r["tunggu_antre_txt"] for r in b["rows"]][3:] == ["01:00", "-"]                     # tiket belum dipanggil: "-"
+
+    html = k.get("/laporan?jenis=harian&tanggal=2026-08-03").text
+    assert "Rata-rata tunggu antre" in html and "Tunggu antre terlama" in html and "Tunggu antre</th>" in html
+
+    wb = load_workbook(io.BytesIO(k.get("/laporan.xlsx?jenis=harian&tanggal=2026-08-03").content))
+    ring = {r[0]: r[1] for r in wb["Ringkasan"].iter_rows(values_only=True) if r[0]}
+    assert ring["Rata-rata tunggu antre (mm:ss)"] == "05:00" and ring["Tunggu antre terlama (mm:ss)"] == "10:00"
+    det = list(wb["Detail"].iter_rows(values_only=True))
+    assert det[0][7] == "Tunggu antre (mm:ss)" and det[0][10] == "Tunggu antre (detik)"
+    assert [d[7] for d in det[1:]] == ["02:00", "03:00", "10:00"] and [d[10] for d in det[1:]] == [120, 180, 600]
+    assert "Rata-rata tunggu antre (mm:ss)" in [c.value for c in wb["Rincian"][1]]
+
+    # menu Kelola Data menampilkan kolom yang sama, dan ikut berubah saat waktu dikoreksi
+    rows = k.get("/api/data?tanggal=2026-08-03").json()["rows"]
+    assert [r["tunggu_antre"] for r in rows] == ["02:00", "03:00", "10:00"]
+    assert "Tunggu Antre" in k.get("/data?tanggal=2026-08-03").text
+    r = _ubah(k, rows[0]["id"], status="selesai", meja=1, dibuat="2026-08-03T10:00:00", dipanggil="2026-08-03T10:02:00", selesai="2026-08-03T10:09:00")
+    assert r.status_code == 200
+    assert [x["tunggu_antre"] for x in k.get("/api/data?tanggal=2026-08-03").json()["rows"]][:2] == ["02:00", "01:00"]   # 001 selesai 10:09 -> 002: 10:10 - 10:09
+
+    # data yang dihapus (soft delete) tidak ikut menjadi acuan "layanan sebelumnya"
+    k.srv.psql("UPDATE queue_tiket SET dihapus_at=now() WHERE tanggal='2026-08-03' AND nomor=1")
+    assert [x["tunggu_antre"] for x in k.get("/api/data?tanggal=2026-08-03").json()["rows"]] == ["05:00", "10:00"]
+    k.srv.psql("UPDATE queue_tiket SET dihapus_at=NULL")

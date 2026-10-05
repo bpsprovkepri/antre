@@ -32,9 +32,9 @@
     <table class="tabel">
       <thead><tr>
         <th class="cb"><input class="form-check-input" type="checkbox" id="pilih-semua" aria-label="Pilih semua"></th>
-        <th>Nomor</th><th>Status</th><th>Meja</th><th>Ambil Nomor</th><th>Dipanggil</th><th>Selesai</th><th>Lama</th><th>Aksi</th>
+        <th>Nomor</th><th>Status</th><th>Meja</th><th>Ambil Nomor</th><th>Dipanggil</th><th>Selesai</th><th title="Sejak layanan sebelumnya selesai (antrian pertama: sejak ambil nomor)">Tunggu Antre</th><th>Lama Layanan</th><th>Aksi</th>
       </tr></thead>
-      <tbody id="isi"><tr><td colspan="9" class="text-secondary py-4">Memuat…</td></tr></tbody>
+      <tbody id="isi"><tr><td colspan="10" class="text-secondary py-4">Memuat…</td></tr></tbody>
     </table>
   </div>
 </section>
@@ -119,11 +119,11 @@ function gambar() {
       <td class="cb"><input class="form-check-input" type="checkbox" data-pilih="${r.id}" ${dipilih.has(r.id) ? 'checked' : ''} aria-label="Pilih nomor ${r.nomor_txt}"></td>
       <td class="no">${r.nomor_txt}</td>
       <td><span class="lencana ${kls}"><i class="bi ${ik}"></i> ${lbl}</span></td>
-      <td>${esc(r.meja_nama)}</td><td>${r.dibuat}</td><td>${r.dipanggil}</td><td>${r.selesai}</td><td class="timer">${r.durasi}</td>
+      <td>${esc(r.meja_nama)}</td><td>${r.dibuat}</td><td>${r.dipanggil}</td><td>${r.selesai}</td><td class="timer">${r.tunggu_antre}</td><td class="timer">${r.durasi}</td>
       <td><div class="aksi-sel">
         <button class="btn btn-lembut btn-ikon" title="Edit" data-edit="${r.id}"><i class="bi bi-pencil-square"></i></button>
         <button class="btn btn-bahaya btn-ikon" title="Hapus" data-hapus="${r.id}"><i class="bi bi-trash3"></i></button></div></td></tr>`;
-  }).join('') : '<tr><td colspan="9" class="text-secondary py-4">Tidak ada data antrian pada tanggal ini.</td></tr>';
+  }).join('') : '<tr><td colspan="10" class="text-secondary py-4">Tidak ada data antrian pada tanggal ini.</td></tr>';
   $('n-pilih').textContent = dipilih.size;
   $('btn-hapus-pilih').disabled = dipilih.size === 0;
   $('btn-hapus-semua').disabled = rows.length === 0;
